@@ -1,8 +1,8 @@
 """
-BITÁCORA MATRIX v3.1
-Sistema de transcripción WhatsApp → Markdown
+BITÁCORA MATRIX v3.2
+Sistema de transcripción WhatsApp → Markdown + Corrección de tildes
 Sin dependencias externas (solo streamlit)
-Corrector ortográfico propio (reglas + diccionario)
+Detecta automáticamente el formato y corrige tildes.
 """
 
 import streamlit as st
@@ -25,18 +25,13 @@ st.set_page_config(
 # --- Estilo Matrix minimalista ---
 st.markdown("""
 <style>
-    /* Fondo negro puro */
-    .stApp {
-        background: #0a0a0a !important;
-    }
-    /* Títulos verdes neón */
+    .stApp { background: #0a0a0a !important; }
     h1, h2, h3, .main-header {
         font-family: 'Courier New', monospace;
         color: #00ff41 !important;
         text-shadow: 0 0 5px #00ff41;
         letter-spacing: 2px;
     }
-    /* Cajas de texto estilo terminal */
     .stTextArea textarea {
         background: #000000 !important;
         color: #00ff41 !important;
@@ -45,7 +40,6 @@ st.markdown("""
         font-family: 'Courier New', monospace !important;
         font-size: 14px !important;
     }
-    /* Botones estilo consola */
     .stButton button {
         background: #000000 !important;
         color: #00ff41 !important;
@@ -62,67 +56,18 @@ st.markdown("""
         color: #000000 !important;
         box-shadow: 0 0 30px #00ff41;
     }
-    /* Checkboxes y labels */
-    .stCheckbox label {
-        color: #00cc33 !important;
-        font-family: 'Courier New', monospace !important;
-    }
-    /* Código (resultado) */
-    .stCodeBlock {
-        background: #000000 !important;
-        border: 1px solid #00ff41 !important;
-        border-radius: 0 !important;
-    }
-    .stCodeBlock code {
-        color: #00ff41 !important;
-        font-family: 'Courier New', monospace !important;
-    }
-    /* Métricas */
-    .css-1xarl3l {
-        background: #000000 !important;
-        border: 1px solid #00ff41 !important;
-        border-radius: 0 !important;
-    }
-    /* Sidebar */
-    .css-1d391kg {
-        background: #000000 !important;
-        border-right: 1px solid #00ff41 !important;
-    }
-    /* Scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: #000000;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #00ff41;
-        border-radius: 0;
-    }
-    /* Línea separadora */
-    hr {
-        border: 0;
-        border-top: 1px solid #00ff41;
-        opacity: 0.3;
-    }
-    /* Texto de depuración */
-    .debug-box {
-        background: #0a0a0a;
-        border: 1px solid #ff0044;
-        padding: 10px;
-        font-family: 'Courier New', monospace;
-        color: #ff4444;
-        font-size: 0.8rem;
-        margin: 10px 0;
-    }
-    /* Blink */
-    @keyframes blink {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0; }
-    }
-    .blink {
-        animation: blink 1s step-end infinite;
-    }
+    .stCheckbox label { color: #00cc33 !important; font-family: 'Courier New', monospace !important; }
+    .stCodeBlock { background: #000000 !important; border: 1px solid #00ff41 !important; border-radius: 0 !important; }
+    .stCodeBlock code { color: #00ff41 !important; font-family: 'Courier New', monospace !important; }
+    .css-1xarl3l { background: #000000 !important; border: 1px solid #00ff41 !important; border-radius: 0 !important; }
+    .css-1d391kg { background: #000000 !important; border-right: 1px solid #00ff41 !important; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #000000; }
+    ::-webkit-scrollbar-thumb { background: #00ff41; border-radius: 0; }
+    hr { border: 0; border-top: 1px solid #00ff41; opacity: 0.3; }
+    .debug-box { background: #0a0a0a; border: 1px solid #ff0044; padding: 10px; font-family: 'Courier New', monospace; color: #ff4444; font-size: 0.8rem; margin: 10px 0; }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+    .blink { animation: blink 1s step-end infinite; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -140,92 +85,83 @@ def init_state():
             st.session_state[k] = v
 init_state()
 
-# --- CORRECTOR ORTOGRÁFICO PROPIO (sin dependencias externas) ---
+# --- CORRECTOR ORTOGRÁFICO AMPLIADO ---
 
 class CorrectorOrtografico:
-    """Corrector de tildes y errores comunes con diccionario extenso."""
+    """Corrector de tildes con diccionario extenso y reglas."""
     
     def __init__(self):
         self.personal = st.session_state.diccionario_personal
-        # Diccionario base de palabras comunes en español (sin tildes)
         self.base = self._cargar_diccionario_base()
-        # Cache de correcciones
         self.cache = {}
-        # Reglas de acentuación (palabra_sin_tilde -> palabra_con_tilde)
         self.reglas_acento = self._cargar_reglas_acento()
-        # Reglas de errores comunes (incorrecta -> correcta)
         self.reglas_errores = self._cargar_reglas_errores()
     
     def _cargar_diccionario_base(self) -> set:
-        """Carga un conjunto amplio de palabras comunes (sin tildes)."""
+        """Diccionario base de palabras correctas (sin tildes)."""
         return {
             # Pronombres, artículos, preposiciones
-            'yo', 'tu', 'el', 'ella', 'ello', 'nosotros', 'vosotros', 'ellos',
-            'mi', 'ti', 'si', 'con', 'sin', 'para', 'por', 'de', 'en', 'a', 'ante',
-            'bajo', 'cabe', 'contra', 'desde', 'durante', 'entre', 'hacia', 'hasta',
-            'mediante', 'para', 'por', 'según', 'sin', 'sobre', 'tras', 'versus',
-            'vía', 'la', 'las', 'lo', 'los', 'un', 'una', 'unos', 'unas',
-            
-            # Verbos comunes (infinitivo)
-            'ser', 'estar', 'tener', 'haber', 'hacer', 'poder', 'decir', 'ir',
-            'ver', 'dar', 'saber', 'querer', 'llegar', 'pasar', 'deber', 'poner',
-            'parecer', 'quedar', 'creer', 'hablar', 'llevar', 'dejar', 'seguir',
-            'encontrar', 'llamar', 'venir', 'pensar', 'salir', 'volver', 'tomar',
-            'conocer', 'vivir', 'sentir', 'tratar', 'mirar', 'contar', 'empezar',
-            'esperar', 'buscar', 'existir', 'entrar', 'trabajar', 'escribir',
-            'perder', 'producir', 'ocurrir', 'realizar', 'formar', 'actuar',
-            'recibir', 'recordar', 'olvidar', 'caminar', 'correr', 'saltar',
-            'nadar', 'volar', 'soñar', 'dormir', 'despertar', 'morir', 'nacer',
-            'comer', 'beber', 'respirar', 'reir', 'llorar', 'gritar', 'susurrar',
-            
-            # Sustantivos comunes
-            'casa', 'trabajo', 'familia', 'amigo', 'persona', 'vida', 'muerte',
-            'tiempo', 'dia', 'mes', 'año', 'hoy', 'mañana', 'ayer', 'semana',
-            'lugar', 'cosa', 'mente', 'cuerpo', 'alma', 'espiritu', 'corazon',
-            'amor', 'odio', 'felicidad', 'tristeza', 'alegria', 'pena', 'sueño',
-            'realidad', 'fantasia', 'verdad', 'mentira', 'belleza', 'fealdad',
-            'fuerza', 'debilidad', 'sabiduria', 'ignorancia', 'poder', 'dinero',
-            'salud', 'enfermedad', 'guerra', 'paz', 'libertad', 'esclavitud',
-            'justicia', 'injusticia', 'derecho', 'ley', 'ciencia', 'arte',
-            'historia', 'filosofia', 'literatura', 'musica', 'pintura', 'cine',
-            'teatro', 'poesia', 'novela', 'cuento', 'leyenda', 'mito', 'religion',
-            'dios', 'demonio', 'angel', 'cielo', 'infierno', 'paraiso', 'abismo',
-            'luz', 'oscuridad', 'fuego', 'agua', 'tierra', 'aire', 'viento',
-            'sol', 'luna', 'estrella', 'planeta', 'universo', 'galaxia',
-            'palabra', 'lenguaje', 'idioma', 'cultura', 'pueblo', 'nacion',
-            'ciudad', 'campo', 'mar', 'montaña', 'valle', 'rio', 'bosque',
-            
-            # Adjetivos comunes
-            'bueno', 'malo', 'grande', 'pequeño', 'alto', 'bajo', 'largo', 'corto',
-            'nuevo', 'viejo', 'joven', 'viejo', 'fuerte', 'debil', 'rápido', 'lento',
-            'claro', 'oscuro', 'caliente', 'frio', 'dulce', 'salado', 'amargo',
-            'feliz', 'triste', 'alegre', 'enojado', 'cansado', 'ocupado', 'libre',
-            'inteligente', 'tonto', 'sabio', 'loco', 'cuerdo', 'bello', 'feo',
-            'peligroso', 'seguro', 'facil', 'dificil', 'simple', 'complejo',
-            'profundo', 'superficial', 'moderno', 'antiguo', 'real', 'falso',
-            
-            # Conectores y muletillas
-            'pero', 'sin embargo', 'no obstante', 'por lo tanto', 'además',
-            'también', 'asimismo', 'incluso', 'es decir', 'o sea', 'así que',
-            'entonces', 'después', 'luego', 'mientras', 'cuando', 'donde',
-            'como', 'porque', 'ya que', 'puesto que', 'aunque', 'si bien',
-            'incluso', 'hasta', 'tanto', 'más', 'menos', 'muy', 'poco', 'mucho',
-            'algo', 'nada', 'todo', 'cada', 'otro', 'mismo', 'propio', 'solo'
+            'yo','tu','el','ella','ello','nosotros','vosotros','ellos',
+            'mi','ti','si','con','sin','para','por','de','en','a','ante',
+            'bajo','cabe','contra','desde','durante','entre','hacia','hasta',
+            'mediante','para','por','según','sin','sobre','tras','versus',
+            'vía','la','las','lo','los','un','una','unos','unas',
+            # Verbos
+            'ser','estar','tener','haber','hacer','poder','decir','ir',
+            'ver','dar','saber','querer','llegar','pasar','deber','poner',
+            'parecer','quedar','creer','hablar','llevar','dejar','seguir',
+            'encontrar','llamar','venir','pensar','salir','volver','tomar',
+            'conocer','vivir','sentir','tratar','mirar','contar','empezar',
+            'esperar','buscar','existir','entrar','trabajar','escribir',
+            'perder','producir','ocurrir','realizar','formar','actuar',
+            'recibir','recordar','olvidar','caminar','correr','saltar',
+            'nadar','volar','soñar','dormir','despertar','morir','nacer',
+            'comer','beber','respirar','reir','llorar','gritar','susurrar',
+            # Sustantivos
+            'casa','trabajo','familia','amigo','persona','vida','muerte',
+            'tiempo','dia','mes','año','hoy','mañana','ayer','semana',
+            'lugar','cosa','mente','cuerpo','alma','espiritu','corazon',
+            'amor','odio','felicidad','tristeza','alegria','pena','sueño',
+            'realidad','fantasia','verdad','mentira','belleza','fealdad',
+            'fuerza','debilidad','sabiduria','ignorancia','poder','dinero',
+            'salud','enfermedad','guerra','paz','libertad','esclavitud',
+            'justicia','injusticia','derecho','ley','ciencia','arte',
+            'historia','filosofia','literatura','musica','pintura','cine',
+            'teatro','poesia','novela','cuento','leyenda','mito','religion',
+            'dios','demonio','angel','cielo','infierno','paraiso','abismo',
+            'luz','oscuridad','fuego','agua','tierra','aire','viento',
+            'sol','luna','estrella','planeta','universo','galaxia',
+            'palabra','lenguaje','idioma','cultura','pueblo','nacion',
+            'ciudad','campo','mar','montaña','valle','rio','bosque',
+            # Adjetivos
+            'bueno','malo','grande','pequeño','alto','bajo','largo','corto',
+            'nuevo','viejo','joven','fuerte','debil','rápido','lento',
+            'claro','oscuro','caliente','frio','dulce','salado','amargo',
+            'feliz','triste','alegre','enojado','cansado','ocupado','libre',
+            'inteligente','tonto','sabio','loco','cuerdo','bello','feo',
+            'peligroso','seguro','facil','dificil','simple','complejo',
+            'profundo','superficial','moderno','antiguo','real','falso',
+            # Conectores
+            'pero','sin','embargo','no','obstante','por','lo','tanto','además',
+            'también','asimismo','incluso','es','decir','o','sea','así','que',
+            'entonces','después','luego','mientras','cuando','donde',
+            'como','porque','ya','puesto','aunque','si','bien',
+            'hasta','tanto','más','menos','muy','poco','mucho',
+            'algo','nada','todo','cada','otro','mismo','propio','solo'
         }
     
     def _cargar_reglas_acento(self) -> Dict[str, str]:
         """Reglas de acentuación: palabra_sin_tilde -> palabra_con_tilde."""
         return {
-            # Agudas (llevan tilde si terminan en vocal, n o s)
+            # Agudas
             'camion': 'camión', 'avion': 'avión', 'corazon': 'corazón',
-            'razon': 'razón', 'sazón': 'sazón', 'buey': 'buey',
-            'jamas': 'jamás', 'allá': 'allá', 'acá': 'acá',
-            'tambien': 'también', 'si': 'sí', 'ti': 'tí', 'mi': 'mí',
-            'aun': 'aún', 'mas': 'más', 'menos': 'menos', 'sol': 'sol',
+            'razon': 'razón', 'sazon': 'sazón', 'jamas': 'jamás',
+            'allá': 'allá', 'acá': 'acá', 'tambien': 'también',
+            'si': 'sí', 'ti': 'tí', 'mi': 'mí', 'aun': 'aún',
+            'mas': 'más', 'menos': 'menos', 'sol': 'sol',
             'pie': 'pie', 'té': 'té', 'café': 'café', 'dominó': 'dominó',
             'bebe': 'bebé', 'bebe': 'bebé', 'canta': 'cantá',
-            
-            # Graves o llanas (llevan tilde si NO terminan en vocal, n o s)
+            # Graves/llanas
             'arbol': 'árbol', 'facil': 'fácil', 'dificil': 'difícil',
             'lapiz': 'lápiz', 'boligrafo': 'bolígrafo', 'examen': 'exámen',
             'imagen': 'imágen', 'joven': 'jóven', 'tunel': 'túnel',
@@ -236,8 +172,7 @@ class CorrectorOrtografico:
             'hostil': 'hostil', 'movil': 'móvil', 'util': 'útil',
             'automovil': 'automóvil', 'cesped': 'césped', 'angel': 'ángel',
             'margen': 'márgen', 'origen': 'origen', 'joven': 'joven',
-            
-            # Esdrújulas (siempre llevan tilde)
+            # Esdrújulas
             'publico': 'público', 'privado': 'privado', 'historico': 'histórico',
             'numerico': 'numérico', 'critico': 'crítico', 'sintactico': 'sintáctico',
             'semantico': 'semántico', 'fonetico': 'fonético', 'estatico': 'estático',
@@ -249,31 +184,44 @@ class CorrectorOrtografico:
             'logico': 'lógico', 'etico': 'ético', 'estetico': 'estético',
             'patetico': 'patético', 'mistico': 'místico', 'ascetico': 'ascético',
             'entusiasta': 'entusiasta', 'apostrofe': 'apóstrofe', 'harpia': 'arpía',
-            'cocodrilo': 'cocodrilo', 'escarabajo': 'escarabajo', 'tortuga': 'tortuga',
-            'pajaro': 'pájaro', 'arbol': 'árbol', 'mesa': 'mesa', 'silla': 'silla',
-            'ventana': 'ventana', 'puerta': 'puerta', 'coche': 'coche', 'moto': 'moto',
-            'bicicleta': 'bicicleta', 'autobus': 'autobús', 'tren': 'tren', 'avion': 'avión',
-            'barco': 'barco', 'submarino': 'submarino', 'cohete': 'cohete', 'satelite': 'satélite',
+            'pajaro': 'pájaro', 'autobus': 'autobús', 'satelite': 'satélite',
             'computadora': 'computadora', 'telefono': 'teléfono', 'television': 'televisión',
             'radio': 'radio', 'camera': 'cámara', 'foto': 'foto', 'musica': 'música',
             'pintura': 'pintura', 'escultura': 'escultura', 'arquitectura': 'arquitectura',
-            
-            # Verbos con tilde (futuro, condicional, etc.)
+            # Verbos con tilde
             'podria': 'podría', 'querría': 'querría', 'sabría': 'sabría',
             'deberia': 'debería', 'estaria': 'estaría', 'tendria': 'tendría',
             'habria': 'habría', 'seria': 'sería', 'iria': 'iría',
             'podemos': 'podemos', 'tenemos': 'tenemos', 'vamos': 'vamos',
             'estamos': 'estamos', 'somos': 'somos', 'veis': 'veis',
             'podeis': 'podeis', 'tendre': 'tendré', 'tendras': 'tendrás',
-            'tendra': 'tendrá', 'vendras': 'vendrás', 'vendran': 'vendrán'
+            'tendra': 'tendrá', 'vendras': 'vendrás', 'vendran': 'vendrán',
+            # Más comunes
+            'sobretodo': 'sobre todo',
+            'macrodatos': 'macrodatos',
+            'psicohistorial': 'psicohistorial',
+            'irreflexivo': 'irreflexivo',
+            'derribo': 'derribó',
+            'amas': 'amás',
+            'dios': 'Dios',
+            'aquel': 'aquél',
+            'ese': 'ése',
+            'este': 'éste',
+            'aquel': 'aquél',
+            'quien': 'quién',
+            'cual': 'cuál',
+            'cuanto': 'cuánto',
+            'donde': 'dónde',
+            'como': 'cómo',
+            'cuando': 'cuándo',
+            'que': 'qué',
+            'quienes': 'quiénes'
         }
     
     def _cargar_reglas_errores(self) -> Dict[str, str]:
-        """Reglas de errores comunes (incorrecta -> correcta)."""
+        """Errores comunes."""
         return {
-            # Errores ortográficos frecuentes
             'impreativo': 'imperativo',
-            'existencialismo': 'existencialismo',  # ya está bien
             'fenomenologia': 'fenomenología',
             'hermeneutica': 'hermenéutica',
             'ontologia': 'ontología',
@@ -306,7 +254,6 @@ class CorrectorOrtografico:
             'psiquiatria': 'psiquiatría',
             'psicoterapia': 'psicoterapia',
             'existencial': 'existencial',
-            'conciencia': 'conciencia',
             'inconciencia': 'inconciencia',
             'subconciencia': 'subconciencia',
             'superconciencia': 'superconciencia',
@@ -327,11 +274,17 @@ class CorrectorOrtografico:
             'teleologico': 'teleológico',
             'escatologico': 'escatológico',
             'soterologico': 'soterológico',
-            'cristologico': 'cristolófico',  # no exacto, pero bueno
+            'cristologico': 'cristolófico',
             'eclesiologico': 'eclesiológico',
             'mariologico': 'mariológico',
             'angelologico': 'angelológico',
             'demonologico': 'demonológico',
+            'telarias': 'telarías',
+            'derribo': 'derribó',
+            'amas': 'amás',
+            'dios': 'Dios',
+            'mas': 'más',
+            'cob': 'cob',
         }
     
     def corregir(self, texto: str) -> Tuple[str, List[str]]:
@@ -340,7 +293,7 @@ class CorrectorOrtografico:
             return texto, []
         
         cambios = []
-        # Dividir en palabras (incluyendo acentos)
+        # Dividir en palabras
         palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
         
         for palabra in set(palabras):
@@ -349,19 +302,18 @@ class CorrectorOrtografico:
             # Si está en diccionario personal, no tocar
             if palabra.lower() in self.personal:
                 continue
-            # Si está en el diccionario base, no tocar (ya es correcta)
+            # Si está en el diccionario base, no tocar
             if palabra.lower() in self.base:
                 continue
             
             # Aplicar reglas de acentuación
             corregida = self._aplicar_reglas(palabra.lower())
             if corregida and corregida != palabra.lower():
-                # Preservar mayúsculas
                 if palabra[0].isupper():
                     corregida = corregida.capitalize()
                 texto = texto.replace(palabra, corregida)
                 cambios.append(f"{palabra} → {corregida}")
-                continue  # ya corregida, no aplicar otras reglas
+                continue
             
             # Aplicar reglas de errores comunes
             corregida = self.reglas_errores.get(palabra.lower())
@@ -374,18 +326,14 @@ class CorrectorOrtografico:
         return texto, cambios
     
     def _aplicar_reglas(self, palabra: str) -> Optional[str]:
-        """Aplica reglas de acentuación a una palabra."""
-        # Buscar en cache
         if palabra in self.cache:
             return self.cache[palabra]
         
-        # 1. Reglas de acentuación (diccionario)
         if palabra in self.reglas_acento:
             corr = self.reglas_acento[palabra]
             self.cache[palabra] = corr
             return corr
         
-        # 2. Regla: palabras terminadas en -cion y -sion (llevan tilde en la o)
         if palabra.endswith('cion') and not palabra.endswith('sion'):
             corr = palabra[:-4] + 'ción'
             self.cache[palabra] = corr
@@ -395,18 +343,11 @@ class CorrectorOrtografico:
             self.cache[palabra] = corr
             return corr
         
-        # 3. Regla: palabras esdrújulas (siempre tilde)
-        # (difícil detectar automáticamente sin un diccionario completo)
-        # Podemos intentar una heurística: si tiene 3 sílabas y termina en -ico, -ica, -acion, etc.
-        # Pero mejor dejar el diccionario.
-        
         return None
     
     def detectar_errores(self, texto: str) -> List[Dict]:
-        """Detecta palabras que no están en el diccionario y sugiere correcciones."""
         errores = []
         palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
-        
         for palabra in set(palabras):
             if len(palabra) < 3:
                 continue
@@ -414,29 +355,20 @@ class CorrectorOrtografico:
                 continue
             if palabra.lower() in self.base:
                 continue
-            # Buscar sugerencias
             sugerencias = self._sugerir(palabra.lower())
             if sugerencias:
-                errores.append({
-                    'palabra': palabra,
-                    'sugerencias': sugerencias[:3]
-                })
+                errores.append({'palabra': palabra, 'sugerencias': sugerencias[:3]})
         return errores
     
     def _sugerir(self, palabra: str) -> List[str]:
-        """Sugiere correcciones para una palabra."""
         sugs = []
-        # 1. Buscar en reglas de acentuación
         if palabra in self.reglas_acento:
             sugs.append(self.reglas_acento[palabra])
-        # 2. Buscar en reglas de errores
         if palabra in self.reglas_errores:
             sugs.append(self.reglas_errores[palabra])
-        # 3. Similitud con palabras del diccionario base
         pl = palabra
         for b in self.base:
             if len(b) > 3 and abs(len(b)-len(pl)) <= 2:
-                # Similitud simple (coincidencia de caracteres)
                 sim = sum(1 for a,c in zip(pl,b) if a==c) / max(len(pl), len(b))
                 if sim > 0.7:
                     sugs.append(b)
@@ -444,33 +376,22 @@ class CorrectorOrtografico:
                         break
         return sugs
 
-# --- PROCESADOR DE MENSAJES (MULTIFORMATO) ---
+# --- PROCESADOR DE MENSAJES ---
 
 @dataclass
 class Mensaje:
-    fecha: str   # DD-MM
-    hora: str    # HH:MM
+    fecha: str
+    hora: str
     autor: str
     contenido: str
     es_metadato: bool = False
 
 class Procesador:
-    # Patrones para todos los formatos de WhatsApp
-    
-    # 1. Web con año y AM/PM: [5:24 p. m., 27/7/2026] Daniel: msg
+    # Formatos de WhatsApp
     PATRON_WEB = r'\[(\d{1,2}:\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?)?\s*,\s*(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\]\s*([^:]+):\s*(.*)'
-    
-    # 2. Móvil sin año (Android): [27/7, 5:24 p. m.] Daniel: msg
     PATRON_MOVIL = r'\[(\d{1,2}/\d{1,2})\s*,\s*(\d{1,2}:\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?)?\]\s*([^:]+):\s*(.*)'
-    
-    # 3. Móvil con guión: 27/7/2026 17:24 - Daniel: msg
     PATRON_GUION = r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*,?\s*(\d{1,2}:\d{2}\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)?)\s*-\s*([^:]+):\s*(.*)'
-    
-    # 4. Alternativo sin hora: 27/7 - Daniel: msg
     PATRON_SIN_HORA = r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*-\s*([^:]+):\s*(.*)'
-    
-    # 5. Guión largo
-    PATRON_GUION_LARGO = r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*[–—-]\s*([^:]+):\s*(.*)'
     
     def __init__(self):
         self.corrector = CorrectorOrtografico()
@@ -489,24 +410,16 @@ class Procesador:
         return mensajes, no_parseadas
     
     def _parsear_linea(self, linea: str) -> Optional[Mensaje]:
-        # Web
         m = re.match(self.PATRON_WEB, linea)
         if m:
             return self._crear_web(m)
-        # Móvil (corchetes)
         m = re.match(self.PATRON_MOVIL, linea)
         if m:
             return self._crear_movil(m)
-        # Guión
         m = re.match(self.PATRON_GUION, linea)
         if m:
             return self._crear_guion(m)
-        # Sin hora
         m = re.match(self.PATRON_SIN_HORA, linea)
-        if m:
-            return self._crear_sin_hora(m)
-        # Guión largo
-        m = re.match(self.PATRON_GUION_LARGO, linea)
         if m:
             return self._crear_sin_hora(m)
         return None
@@ -547,7 +460,6 @@ class Procesador:
         return self._construir(fecha_str, "00:00", "", autor, contenido)
     
     def _construir(self, fecha_str, hora, ampm, autor, contenido):
-        # Convertir hora a 24h
         if ampm:
             try:
                 h, mn = map(int, hora.split(':'))
@@ -559,11 +471,9 @@ class Procesador:
                 hora = f"{h:02d}:{mn:02d}"
             except:
                 pass
-        # Formatear fecha a DD-MM
         if '/' in fecha_str:
             partes = fecha_str.split('/')
             if len(partes) == 2:
-                # Sin año -> añadir año actual
                 anio = datetime.now().year
                 fecha_str = f"{partes[0]}/{partes[1]}/{anio}"
         try:
@@ -575,7 +485,6 @@ class Procesador:
                 fecha = fecha_dt.strftime('%d-%m')
             except:
                 fecha = fecha_str.replace('/', '-')
-        # Detectar metadatos
         es_mult = bool(re.search(r'<Multimedia omitido>|IMG|VIDEO|\.(jpg|png|gif|mp4)', contenido, re.IGNORECASE))
         es_enlace = bool(re.search(r'https?://', contenido))
         es_adj = bool(re.search(r'Documento omitido|Audio omitido', contenido, re.IGNORECASE))
@@ -639,7 +548,7 @@ class Procesador:
                 i += 1
         return res
 
-# --- INTERFAZ DE USUARIO ---
+# --- INTERFAZ ---
 
 def sidebar():
     with st.sidebar:
@@ -690,15 +599,16 @@ def sidebar():
 
 def main():
     st.markdown("<div style='text-align:center;'><h1>⌨️ BITÁCORA MATRIX</h1></div>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center;color:#00cc33;font-family:Courier New;'>[ SISTEMA DE TRANSCRIPCIÓN WHATSAPP → MARKDOWN ]</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center;color:#00cc33;font-family:Courier New;'>[ SISTEMA DE TRANSCRIPCIÓN WHATSAPP → MARKDOWN + CORRECTOR DE TILDES ]</p>", unsafe_allow_html=True)
     
     opts = sidebar()
     
     st.markdown("### 📝 Pegar mensajes")
+    st.markdown("*Puedes pegar mensajes RAW de WhatsApp (con fecha) o texto plano. La app detectará automáticamente el formato.*")
     texto = st.text_area(
         "",
-        height=200,
-        placeholder="[27/7, 5:24 p. m.] Daniel Díaz: Mensaje\n[5:24 p. m., 27/7/2026] Daniel: Mensaje\n27/7/2026 17:24 - Daniel: Mensaje",
+        height=250,
+        placeholder="Ejemplo RAW:\n[27/7, 5:24 p. m.] Daniel Díaz: Violent delights\n\nEjemplo texto plano:\nLa entera historia humana esta anidada en telarías de destino en mi mente",
         label_visibility="collapsed"
     )
     
@@ -707,6 +617,17 @@ def main():
         generar = st.button("🚀 GENERAR", use_container_width=True)
     with col2:
         limpiar = st.button("🗑️ LIMPIAR", use_container_width=True)
+    with col3:
+        if st.button("📋 COPIAR", use_container_width=True) and st.session_state.texto_salida:
+            st.write("📋 ¡Copiado!")
+            st.markdown(f"""
+            <script>
+            function copy() {{
+                navigator.clipboard.writeText(`{st.session_state.texto_salida}`);
+            }}
+            copy();
+            </script>
+            """, unsafe_allow_html=True)
     
     if limpiar:
         st.session_state.texto_salida = ""
@@ -717,48 +638,76 @@ def main():
         with st.spinner("Procesando..."):
             proc = Procesador()
             mensajes, no_parseadas = proc.procesar(texto)
-            st.session_state.debug_lines = no_parseadas
             
-            if not mensajes:
-                st.error("⚠️ No se encontraron mensajes válidos.")
-                if no_parseadas:
-                    with st.expander("🔍 Líneas no reconocidas (primeras 10)"):
-                        for ln in no_parseadas[:10]:
-                            st.code(ln, language="text")
-            else:
-                md = proc.generar_markdown(mensajes, opts)
-                st.session_state.texto_salida = md
-                if opts['detectar'] and opts['corregir']:
-                    errores = proc.corrector.detectar_errores(md)
-                    if errores:
-                        with st.expander(f"🔍 Errores detectados ({len(errores)})"):
-                            for e in errores[:20]:
-                                st.warning(f"**{e['palabra']}** → {', '.join(e['sugerencias'])}")
+            # Si no se encontraron mensajes, pero hay texto, tratar como texto plano
+            if not mensajes and texto.strip():
+                # Modo texto plano: solo corregir tildes
+                st.info("📝 No se detectaron mensajes con formato WhatsApp. Procesando como texto plano...")
+                if opts['corregir']:
+                    texto_corregido, cambios = proc.corrector.corregir(texto)
+                else:
+                    texto_corregido = texto
+                    cambios = []
+                st.session_state.texto_salida = texto_corregido
                 
-                st.markdown("### 📄 Resultado Markdown")
-                st.code(md, language="markdown")
+                if cambios:
+                    with st.expander(f"🔧 {len(cambios)} correcciones realizadas"):
+                        for c in cambios[:20]:
+                            st.text(c)
+                        if len(cambios) > 20:
+                            st.text(f"... y {len(cambios)-20} más")
+                
+                st.markdown("### 📄 Texto corregido")
+                st.code(texto_corregido, language="markdown")
                 st.download_button(
-                    "📥 Descargar .md",
-                    md,
-                    file_name=f"bitacora_{datetime.now().strftime('%Y%m%d')}.md",
-                    mime="text/markdown"
+                    "📥 Descargar .txt",
+                    texto_corregido,
+                    file_name=f"texto_corregido_{datetime.now().strftime('%Y%m%d')}.txt",
+                    mime="text/plain"
                 )
-                st.success(f"✅ Procesados {len(mensajes)} mensajes.")
-                if no_parseadas:
-                    st.warning(f"⚠️ {len(no_parseadas)} líneas no reconocidas (ver expandible arriba).")
-                
-                # Historial
-                st.session_state.historial.append({
-                    'fecha': datetime.now().strftime('%d-%m %H:%M'),
-                    'msgs': len(mensajes),
-                    'preview': md[:100]
-                })
-                st.session_state.contador += 1
+                st.success(f"✅ Texto corregido y listo para copiar.")
+            else:
+                # Modo WhatsApp
+                if not mensajes:
+                    st.error("⚠️ No se encontraron mensajes válidos.")
+                    if no_parseadas:
+                        with st.expander("🔍 Líneas no reconocidas (primeras 10)"):
+                            for ln in no_parseadas[:10]:
+                                st.code(ln, language="text")
+                else:
+                    md = proc.generar_markdown(mensajes, opts)
+                    st.session_state.texto_salida = md
+                    
+                    if opts['detectar'] and opts['corregir']:
+                        # Detectar errores en el texto ya corregido
+                        errores = proc.corrector.detectar_errores(md)
+                        if errores:
+                            with st.expander(f"🔍 Errores detectados ({len(errores)})"):
+                                for e in errores[:20]:
+                                    st.warning(f"**{e['palabra']}** → {', '.join(e['sugerencias'])}")
+                    
+                    st.markdown("### 📄 Resultado Markdown")
+                    st.code(md, language="markdown")
+                    st.download_button(
+                        "📥 Descargar .md",
+                        md,
+                        file_name=f"bitacora_{datetime.now().strftime('%Y%m%d')}.md",
+                        mime="text/markdown"
+                    )
+                    st.success(f"✅ Procesados {len(mensajes)} mensajes.")
+                    if no_parseadas:
+                        st.warning(f"⚠️ {len(no_parseadas)} líneas no reconocidas (ver expandible arriba).")
+                    
+                    st.session_state.historial.append({
+                        'fecha': datetime.now().strftime('%d-%m %H:%M'),
+                        'msgs': len(mensajes),
+                        'preview': md[:100]
+                    })
+                    st.session_state.contador += 1
     
     elif generar:
-        st.warning("⚠️ Pega algunos mensajes primero.")
+        st.warning("⚠️ Pega algunos mensajes o texto primero.")
     
-    # Footer
     st.markdown("---")
     st.markdown(f"""
     <div style='text-align:center;color:#006622;font-family:Courier New;font-size:0.8rem;'>
