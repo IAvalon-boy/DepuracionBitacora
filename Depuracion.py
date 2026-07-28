@@ -1,8 +1,8 @@
 """
-BITÁCORA MATRIX v3.0
-Sistema de dictado/transcripción de WhatsApp a Markdown
-Estilo consola Matrix - Minimalista
-Soporta todos los formatos de WhatsApp (Web y Móvil)
+BITÁCORA MATRIX v3.1
+Sistema de transcripción WhatsApp → Markdown
+Corrección ortográfica real con pyspellchecker + diccionario personal
+Estilo Matrix minimalista
 """
 
 import streamlit as st
@@ -13,6 +13,16 @@ from typing import List, Optional, Dict, Tuple
 from collections import defaultdict
 import json
 import random
+import sys
+import subprocess
+
+# --- Instalar dependencias si no están ---
+try:
+    from spellchecker import SpellChecker
+except ImportError:
+    st.warning("Instalando pyspellchecker...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyspellchecker"])
+    from spellchecker import SpellChecker
 
 # --- Configuración de página ---
 st.set_page_config(
@@ -25,18 +35,13 @@ st.set_page_config(
 # --- Estilo Matrix minimalista ---
 st.markdown("""
 <style>
-    /* Fondo negro puro */
-    .stApp {
-        background: #0a0a0a !important;
-    }
-    /* Títulos verdes neón */
+    .stApp { background: #0a0a0a !important; }
     h1, h2, h3, .main-header {
         font-family: 'Courier New', monospace;
         color: #00ff41 !important;
         text-shadow: 0 0 5px #00ff41;
         letter-spacing: 2px;
     }
-    /* Cajas de texto estilo terminal */
     .stTextArea textarea {
         background: #000000 !important;
         color: #00ff41 !important;
@@ -45,7 +50,6 @@ st.markdown("""
         font-family: 'Courier New', monospace !important;
         font-size: 14px !important;
     }
-    /* Botones estilo consola */
     .stButton button {
         background: #000000 !important;
         color: #00ff41 !important;
@@ -62,12 +66,10 @@ st.markdown("""
         color: #000000 !important;
         box-shadow: 0 0 30px #00ff41;
     }
-    /* Checkboxes y labels */
     .stCheckbox label {
         color: #00cc33 !important;
         font-family: 'Courier New', monospace !important;
     }
-    /* Código (resultado) */
     .stCodeBlock {
         background: #000000 !important;
         border: 1px solid #00ff41 !important;
@@ -77,35 +79,19 @@ st.markdown("""
         color: #00ff41 !important;
         font-family: 'Courier New', monospace !important;
     }
-    /* Métricas */
     .css-1xarl3l {
         background: #000000 !important;
         border: 1px solid #00ff41 !important;
         border-radius: 0 !important;
     }
-    /* Sidebar */
     .css-1d391kg {
         background: #000000 !important;
         border-right: 1px solid #00ff41 !important;
     }
-    /* Scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: #000000;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #00ff41;
-        border-radius: 0;
-    }
-    /* Línea separadora */
-    hr {
-        border: 0;
-        border-top: 1px solid #00ff41;
-        opacity: 0.3;
-    }
-    /* Texto de depuración */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #000000; }
+    ::-webkit-scrollbar-thumb { background: #00ff41; border-radius: 0; }
+    hr { border: 0; border-top: 1px solid #00ff41; opacity: 0.3; }
     .debug-box {
         background: #0a0a0a;
         border: 1px solid #ff0044;
@@ -115,14 +101,8 @@ st.markdown("""
         font-size: 0.8rem;
         margin: 10px 0;
     }
-    /* Blink */
-    @keyframes blink {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0; }
-    }
-    .blink {
-        animation: blink 1s step-end infinite;
-    }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+    .blink { animation: blink 1s step-end infinite; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -138,118 +118,126 @@ def init_state():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
 init_state()
 
-# --- Clases ---
+# --- Clase Corrector (con pyspellchecker) ---
+class CorrectorOrtografico:
+    def __init__(self):
+        # Cargar el corrector en español
+        self.spell = SpellChecker(language='es')
+        # Diccionario personal desde sesión
+        self.personal = st.session_state.diccionario_personal
+        # Cache para correcciones rápidas
+        self.cache = {}
+        # Agregar palabras personalizadas al diccionario
+        for palabra in self.personal:
+            self.spell.word_frequency.add(palabra)
 
+    def agregar_palabra(self, palabra):
+        """Agrega una palabra al diccionario personal y al corrector"""
+        self.personal.add(palabra.lower())
+        self.spell.word_frequency.add(palabra.lower())
+        st.session_state.diccionario_personal = self.personal
+
+    def eliminar_palabra(self, palabra):
+        """Elimina una palabra del diccionario personal"""
+        self.personal.discard(palabra.lower())
+        st.session_state.diccionario_personal = self.personal
+
+    def corregir_texto(self, texto: str, solo_seguro: bool = True) -> Tuple[str, List[str]]:
+        """
+        Corrige el texto usando pyspellchecker.
+        solo_seguro: si True, solo corrige si hay una única sugerencia.
+        """
+        if not texto:
+            return texto, []
+
+        cambios = []
+        # Extraer palabras (solo letras y acentos)
+        palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
+
+        for palabra in set(palabras):
+            if len(palabra) < 3:
+                continue
+            # Si está en el diccionario personal, no tocar
+            if palabra.lower() in self.personal:
+                continue
+
+            # Buscar en caché
+            if palabra in self.cache:
+                corregida = self.cache[palabra]
+            else:
+                # Obtener sugerencias
+                sugerencias = list(self.spell.candidates(palabra))
+                if solo_seguro:
+                    # Solo si hay UNA sugerencia
+                    if len(sugerencias) == 1:
+                        corregida = sugerencias[0]
+                    else:
+                        corregida = None
+                else:
+                    # Si hay sugerencias, tomar la primera
+                    if sugerencias:
+                        corregida = sugerencias[0]
+                    else:
+                        corregida = None
+
+                if corregida:
+                    self.cache[palabra] = corregida
+
+            if corregida and corregida != palabra:
+                # Preservar mayúsculas
+                if palabra[0].isupper():
+                    corregida = corregida.capitalize()
+                texto = texto.replace(palabra, corregida)
+                cambios.append(f"{palabra} → {corregida}")
+
+        return texto, cambios
+
+    def detectar_errores(self, texto: str) -> List[Dict]:
+        """
+        Detecta palabras desconocidas (que no están en el diccionario)
+        y devuelve sugerencias.
+        """
+        errores = []
+        palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
+
+        for palabra in set(palabras):
+            if len(palabra) < 3:
+                continue
+            if palabra.lower() in self.personal:
+                continue
+            # Verificar si es desconocida
+            if self.spell.unknown([palabra]):
+                sugerencias = list(self.spell.candidates(palabra))[:3]
+                if sugerencias:
+                    errores.append({
+                        'palabra': palabra,
+                        'sugerencias': sugerencias
+                    })
+
+        return errores
+
+# --- Procesador de mensajes ---
 @dataclass
 class Mensaje:
-    fecha: str   # DD-MM
-    hora: str    # HH:MM
+    fecha: str
+    hora: str
     autor: str
     contenido: str
     es_metadato: bool = False
 
-class Corrector:
-    def __init__(self):
-        self.personal = st.session_state.diccionario_personal
-        self.base = {
-            'hola','como','estas','bien','gracias','por','favor','dia','tarde',
-            'noche','si','no','tal','vez','casa','trabajo','amigo','familia',
-            'tiempo','mes','año','hoy','mañana','ayer','feliz','triste',
-            'contento','cansado','ocupado','libre','comer','beber','dormir',
-            'leer','escribir','pensar','sentir','filosofia','existencia','ser',
-            'estar','tener','hacer','decir','ir','venir','ver','mirar',
-            'escuchar','hablar','callar','amor','vida','muerte','sueño',
-            'realidad','conciencia','alma','espiritu','cuerpo','mente',
-            'razon','emocion'
-        }
-        self.cache = {}
-
-    def corregir(self, texto: str) -> Tuple[str, List[str]]:
-        cambios = []
-        palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
-        for p in set(palabras):
-            if len(p) < 3 or p.lower() in self.personal or p.lower() in self.base:
-                continue
-            corr = self._buscar(p)
-            if corr and corr != p:
-                if p[0].isupper():
-                    corr = corr.capitalize()
-                texto = texto.replace(p, corr)
-                cambios.append(f"{p} → {corr}")
-        return texto, cambios
-
-    def _buscar(self, p):
-        if p in self.cache:
-            return self.cache[p]
-        reglas = [
-            ('filosofia','filosofía'),('psicologia','psicología'),
-            ('sociologia','sociología'),('antropologia','antropología'),
-            ('teologia','teología'),('metafisica','metafísica'),
-            ('epistemologia','epistemología'),('axiologia','axiología'),
-            ('estetica','estética'),('etica','ética'),('logica','lógica'),
-            ('deberia','debería'),('podria','podría'),('seria','sería'),
-            ('estaria','estaría'),('habria','habría'),('tendria','tendría'),
-            ('impreativo','imperativo')
-        ]
-        pl = p.lower()
-        for inc, cor in reglas:
-            if pl == inc:
-                self.cache[p] = cor
-                return cor
-        if pl.endswith('cion') and not pl.endswith('sion'):
-            cor = pl[:-4] + 'ción'
-            self.cache[p] = cor
-            return cor
-        return None
-
-    def detectar(self, texto: str) -> List[Dict]:
-        errores = []
-        palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
-        for p in set(palabras):
-            if len(p) < 3 or p.lower() in self.personal or p.lower() in self.base:
-                continue
-            sugs = self._sugerir(p)
-            if sugs:
-                errores.append({'palabra': p, 'sugerencias': sugs[:3]})
-        return errores
-
-    def _sugerir(self, p):
-        sugs = []
-        corr = self._buscar(p)
-        if corr:
-            sugs.append(corr)
-        # Similitud simple con base
-        pl = p.lower()
-        for b in self.base:
-            if len(b) > 3 and abs(len(b)-len(pl)) <= 2:
-                if sum(1 for a,c in zip(pl,b) if a==c) / max(len(pl),len(b)) > 0.7:
-                    sugs.append(b)
-                    if len(sugs) >= 3:
-                        break
-        return sugs
-
 class Procesador:
-    # --- PATRONES PARA TODOS LOS FORMATOS ---
-
-    # 1. Web con año y AM/PM: [5:24 p. m., 27/7/2026] Daniel: msg
+    # Patrones para todos los formatos
     PATRON_WEB = r'\[(\d{1,2}:\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?)?\s*,\s*(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\]\s*([^:]+):\s*(.*)'
-
-    # 2. Móvil sin año (Android): [27/7, 5:24 p. m.] Daniel: msg
     PATRON_MOVIL = r'\[(\d{1,2}/\d{1,2})\s*,\s*(\d{1,2}:\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?)?\]\s*([^:]+):\s*(.*)'
-
-    # 3. Móvil con guión: 27/7/2026 17:24 - Daniel: msg
     PATRON_GUION = r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*,?\s*(\d{1,2}:\d{2}\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)?)\s*-\s*([^:]+):\s*(.*)'
-
-    # 4. Alternativo sin hora: 27/7 - Daniel: msg
     PATRON_SIN_HORA = r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*-\s*([^:]+):\s*(.*)'
-
-    # 5. Otro (guión largo)
     PATRON_GUION_LARGO = r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*[–—-]\s*([^:]+):\s*(.*)'
 
     def __init__(self):
-        self.corrector = Corrector()
+        self.corrector = CorrectorOrtografico()
 
     def procesar(self, texto: str) -> Tuple[List[Mensaje], List[str]]:
         mensajes = []
@@ -265,23 +253,18 @@ class Procesador:
         return mensajes, no_parseadas
 
     def _parsear_linea(self, linea: str) -> Optional[Mensaje]:
-        # Web
         m = re.match(self.PATRON_WEB, linea)
         if m:
             return self._crear_web(m)
-        # Móvil (corchetes)
         m = re.match(self.PATRON_MOVIL, linea)
         if m:
             return self._crear_movil(m)
-        # Guión
         m = re.match(self.PATRON_GUION, linea)
         if m:
             return self._crear_guion(m)
-        # Sin hora
         m = re.match(self.PATRON_SIN_HORA, linea)
         if m:
             return self._crear_sin_hora(m)
-        # Guión largo
         m = re.match(self.PATRON_GUION_LARGO, linea)
         if m:
             return self._crear_sin_hora(m)
@@ -308,7 +291,6 @@ class Procesador:
         hora_ampm = m.group(2).strip()
         autor = m.group(3).strip()
         contenido = m.group(4).strip()
-        # Separar hora y ampm si existe
         ampm = ''
         if re.search(r'a\.?\s*m\.?|p\.?\s*m\.?', hora_ampm, re.IGNORECASE):
             partes = re.split(r'\s+(?=a\.?\s*m\.?|p\.?\s*m\.?)', hora_ampm, flags=re.IGNORECASE)
@@ -337,11 +319,9 @@ class Procesador:
             except:
                 pass
         # Formatear fecha a DD-MM
-        # Si no tiene año, asumir año actual
         if '/' in fecha_str:
             partes = fecha_str.split('/')
             if len(partes) == 2:
-                # DD/MM sin año -> añadir año actual
                 anio = datetime.now().year
                 fecha_str = f"{partes[0]}/{partes[1]}/{anio}"
         try:
@@ -397,7 +377,7 @@ class Procesador:
                 conts = self._agrupar(conts)
             for c in conts:
                 if opciones.get('corregir', False):
-                    c, _ = self.corrector.corregir(c)
+                    c, _ = self.corrector.corregir_texto(c, solo_seguro=True)
                 lineas.append(c)
             lineas.append("")
         if opciones.get('stats', False):
@@ -418,7 +398,6 @@ class Procesador:
         return res
 
 # --- UI ---
-
 def sidebar():
     with st.sidebar:
         st.markdown("### ⚙️ CONFIG")
@@ -444,11 +423,16 @@ def sidebar():
         nueva = st.text_input("Agregar palabra", key="nueva_pal")
         if st.button("➕ Agregar") and nueva.strip():
             st.session_state.diccionario_personal.add(nueva.strip().lower())
+            # Actualizar el corrector si ya existe
+            if 'corrector' in st.session_state:
+                st.session_state.corrector.agregar_palabra(nueva.strip().lower())
             st.rerun()
         if st.session_state.diccionario_personal:
             elim = st.selectbox("Eliminar", sorted(st.session_state.diccionario_personal))
             if st.button("🗑️ Eliminar"):
                 st.session_state.diccionario_personal.discard(elim)
+                if 'corrector' in st.session_state:
+                    st.session_state.corrector.eliminar_palabra(elim)
                 st.rerun()
 
         st.markdown("---")
@@ -489,7 +473,11 @@ def main():
 
     if generar and texto:
         with st.spinner("Procesando..."):
+            # Crear procesador con corrector
             proc = Procesador()
+            # Guardar corrector en sesión para mantener diccionario personal
+            st.session_state.corrector = proc.corrector
+
             mensajes, no_parseadas = proc.procesar(texto)
             st.session_state.debug_lines = no_parseadas
 
@@ -502,8 +490,10 @@ def main():
             else:
                 md = proc.generar_markdown(mensajes, opts)
                 st.session_state.texto_salida = md
+
+                # Detectar errores si está activado
                 if opts['detectar'] and opts['corregir']:
-                    errores = proc.corrector.detectar(md)
+                    errores = proc.corrector.detectar_errores(md)
                     if errores:
                         with st.expander(f"🔍 Errores detectados ({len(errores)})"):
                             for e in errores[:20]:
@@ -516,7 +506,7 @@ def main():
                 if no_parseadas:
                     st.warning(f"⚠️ {len(no_parseadas)} líneas no reconocidas (ver expandible arriba).")
 
-                # Guardar historial
+                # Historial
                 st.session_state.historial.append({
                     'fecha': datetime.now().strftime('%d-%m %H:%M'),
                     'msgs': len(mensajes),
@@ -527,7 +517,6 @@ def main():
     elif generar:
         st.warning("⚠️ Pega algunos mensajes primero.")
 
-    # Footer
     st.markdown("---")
     st.markdown(f"""
     <div style='text-align:center;color:#006622;font-family:Courier New;font-size:0.8rem;'>
