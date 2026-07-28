@@ -1,7 +1,8 @@
 """
-BITÁCORA CYBERPUNK v2.0 - Streamlit
+BITÁCORA CYBERPUNK v2.1 - Streamlit
 Sistema de integración WhatsApp → Joplin
 Estética: Matrix/Cyberpunk con efectos de consola
+Soporte mejorado para múltiples formatos de WhatsApp
 """
 
 import streamlit as st
@@ -11,7 +12,6 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple
 from collections import defaultdict
 import json
-import time
 import random
 
 # --- Configuración de la página ---
@@ -25,7 +25,6 @@ st.set_page_config(
 # --- CSS CYBERPUNK MATRIX ---
 st.markdown("""
 <style>
-    /* Fondo Matrix */
     .stApp {
         background: #0a0a0a !important;
         background-image: 
@@ -34,7 +33,6 @@ st.markdown("""
         background-size: 20px 20px;
     }
     
-    /* Texto principal estilo terminal */
     .main-header {
         font-family: 'Courier New', monospace;
         font-size: 2.8rem;
@@ -67,7 +65,6 @@ st.markdown("""
         border-radius: 4px;
     }
     
-    /* Cajas tipo terminal */
     .terminal-box {
         background: rgba(0, 0, 0, 0.8);
         border: 1px solid #00ff41;
@@ -104,7 +101,6 @@ st.markdown("""
         font-family: 'Courier New', monospace;
     }
     
-    /* Inputs estilo terminal */
     .stTextArea textarea {
         background: rgba(0, 0, 0, 0.9) !important;
         color: #00ff41 !important;
@@ -125,7 +121,6 @@ st.markdown("""
         font-style: italic;
     }
     
-    /* Botones cyberpunk */
     .stButton button {
         background: rgba(0, 0, 0, 0.8) !important;
         color: #00ff41 !important;
@@ -147,12 +142,6 @@ st.markdown("""
         border-color: #00ff41 !important;
     }
     
-    .stButton button:disabled {
-        opacity: 0.3 !important;
-        cursor: not-allowed !important;
-    }
-    
-    /* Checkboxes cyberpunk */
     .stCheckbox label {
         color: #00cc33 !important;
         font-family: 'Courier New', monospace !important;
@@ -162,15 +151,6 @@ st.markdown("""
         accent-color: #00ff41 !important;
     }
     
-    /* Selectbox cyberpunk */
-    .stSelectbox select {
-        background: rgba(0, 0, 0, 0.9) !important;
-        color: #00ff41 !important;
-        border: 1px solid #00ff41 !important;
-        font-family: 'Courier New', monospace !important;
-    }
-    
-    /* Code blocks - Matrix style */
     .stCodeBlock {
         background: rgba(0, 0, 0, 0.9) !important;
         border: 1px solid #00ff41 !important;
@@ -183,7 +163,6 @@ st.markdown("""
         color: #00ff41 !important;
     }
     
-    /* Sidebar cyberpunk */
     .css-1d391kg {
         background: rgba(0, 0, 0, 0.95) !important;
         border-right: 1px solid #00ff41 !important;
@@ -194,14 +173,12 @@ st.markdown("""
         font-family: 'Courier New', monospace !important;
     }
     
-    /* Títulos de sidebar */
     .css-1d391kg h1, .css-1d391kg h2, .css-1d391kg h3 {
         color: #00ff41 !important;
         font-family: 'Courier New', monospace !important;
         text-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
     }
     
-    /* Métricas cyberpunk */
     .css-1xarl3l {
         background: rgba(0, 0, 0, 0.8) !important;
         border: 1px solid #00ff41 !important;
@@ -221,7 +198,6 @@ st.markdown("""
         text-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
     }
     
-    /* Separador cyberpunk */
     hr {
         border: 0;
         height: 1px;
@@ -229,7 +205,6 @@ st.markdown("""
         margin: 20px 0;
     }
     
-    /* Scrollbar cyberpunk */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -250,7 +225,6 @@ st.markdown("""
         box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
     }
     
-    /* Etiquetas de diccionario */
     .dict-tag {
         background: rgba(0, 255, 65, 0.1);
         border: 1px solid #00ff41;
@@ -264,17 +238,15 @@ st.markdown("""
         box-shadow: 0 0 10px rgba(0, 255, 65, 0.1);
     }
     
-    /* Animación de titileo para texto de carga */
+    .blink {
+        animation: blink 1s step-end infinite;
+    }
+    
     @keyframes blink {
         0%, 100% { opacity: 1; }
         50% { opacity: 0; }
     }
     
-    .blink {
-        animation: blink 1s step-end infinite;
-    }
-    
-    /* Terminal prompt */
     .prompt {
         color: #00ff41;
         font-family: 'Courier New', monospace;
@@ -287,7 +259,6 @@ st.markdown("""
         opacity: 0.5;
     }
     
-    /* Matriz de fondo animado (efecto) */
     .matrix-bg {
         position: fixed;
         top: 0;
@@ -306,12 +277,6 @@ st.markdown("""
         );
     }
     
-    /* Tooltips cyberpunk */
-    .stTooltipIcon {
-        color: #00ff41 !important;
-    }
-    
-    /* Input de texto para diccionario */
     .stTextInput input {
         background: rgba(0, 0, 0, 0.9) !important;
         color: #00ff41 !important;
@@ -324,6 +289,18 @@ st.markdown("""
         border-color: #00ff41 !important;
         box-shadow: 0 0 20px rgba(0, 255, 65, 0.2) !important;
     }
+    
+    /* Debug section */
+    .debug-box {
+        background: rgba(255, 0, 0, 0.05);
+        border: 1px solid #ff0044;
+        border-radius: 4px;
+        padding: 10px;
+        margin: 10px 0;
+        font-family: 'Courier New', monospace;
+        color: #ff6666;
+        font-size: 0.8rem;
+    }
 </style>
 
 <div class="matrix-bg"></div>
@@ -331,7 +308,6 @@ st.markdown("""
 
 # --- Inicialización de Estado ---
 def init_session_state():
-    """Inicializa el estado de la sesión"""
     defaults = {
         'mensajes_procesados': [],
         'texto_salida': '',
@@ -342,7 +318,7 @@ def init_session_state():
         'modo_edicion': False,
         'palabra_editar': '',
         'matrix_effect': True,
-        'scan_lines': True
+        'debug_lines': []  # Para almacenar líneas no parseadas
     }
     
     for key, value in defaults.items():
@@ -351,11 +327,10 @@ def init_session_state():
 
 init_session_state()
 
-# --- Clases Principales ---
+# --- Clases ---
 
 @dataclass
 class Mensaje:
-    """Representa un mensaje de WhatsApp"""
     fecha: str
     hora: str
     autor: str
@@ -366,16 +341,12 @@ class Mensaje:
     es_adjunto: bool = False
 
 class CorrectorOrtografico:
-    """Sistema de corrección ortográfica con diccionario personal"""
-    
     def __init__(self):
         self._cache_correcciones = {}
         self._diccionario_base = self._cargar_diccionario_base()
         self.diccionario_personal = st.session_state.diccionario_personal
     
     def _cargar_diccionario_base(self) -> set:
-        """Carga diccionario base"""
-        # Palabras comunes en español
         return {
             'hola', 'como', 'estas', 'bien', 'gracias', 'por', 'favor',
             'buenos', 'dias', 'tardes', 'noches', 'adios', 'hasta', 'luego',
@@ -386,12 +357,10 @@ class CorrectorOrtografico:
             'filosofia', 'existencia', 'ser', 'estar', 'tener', 'hacer', 'decir',
             'ir', 'venir', 'ver', 'mirar', 'escuchar', 'hablar', 'callar',
             'amor', 'vida', 'muerte', 'sueño', 'realidad', 'conciencia',
-            'alma', 'espiritu', 'cuerpo', 'mente', 'razon', 'emocion',
-            'mundo', 'universo', 'tiempo', 'espacio', 'energia', 'materia'
+            'alma', 'espiritu', 'cuerpo', 'mente', 'razon', 'emocion'
         }
     
     def corregir_texto(self, texto: str, solo_seguro: bool = True) -> Tuple[str, List[str]]:
-        """Corrige texto y retorna cambios realizados"""
         if not texto:
             return texto, []
         
@@ -401,15 +370,12 @@ class CorrectorOrtografico:
         for palabra in set(palabras):
             if len(palabra) < 3:
                 continue
-            
             if palabra.lower() in self.diccionario_personal:
                 continue
-            
             if palabra.lower() in self._diccionario_base:
                 continue
             
             corregida = self._buscar_correccion(palabra, solo_seguro)
-            
             if corregida and corregida != palabra:
                 if palabra[0].isupper():
                     corregida = corregida.capitalize()
@@ -419,23 +385,19 @@ class CorrectorOrtografico:
         return texto, cambios
     
     def _buscar_correccion(self, palabra: str, solo_seguro: bool) -> Optional[str]:
-        """Busca corrección para una palabra"""
         if palabra in self._cache_correcciones:
             return self._cache_correcciones[palabra]
         
         correcciones = self._reglas_correccion(palabra)
-        
         if len(correcciones) == 1:
             self._cache_correcciones[palabra] = correcciones[0]
             return correcciones[0]
         elif not solo_seguro and correcciones:
             self._cache_correcciones[palabra] = correcciones[0]
             return correcciones[0]
-        
         return None
     
     def _reglas_correccion(self, palabra: str) -> List[str]:
-        """Aplica reglas de corrección"""
         correcciones = []
         palabra_lower = palabra.lower()
         
@@ -468,31 +430,19 @@ class CorrectorOrtografico:
             ('impreativo', 'imperativo'),
             ('existencialismo', 'existencialismo'),
             ('fenomenologia', 'fenomenología'),
-            ('hermeneutica', 'hermenéutica'),
-            ('ontologia', 'ontología'),
-            ('gnoseologia', 'gnoseología'),
-            ('teleologia', 'teleología'),
-            ('escatologia', 'escatología'),
-            ('soteriologia', 'soteriología'),
-            ('cristologia', 'cristología'),
-            ('eclesiologia', 'eclesiología'),
-            ('mariologia', 'mariología'),
-            ('angelologia', 'angelología'),
-            ('demonologia', 'demonología')
+            ('hermeneutica', 'hermenéutica')
         ]
         
         for incorrecta, correcta in reglas:
             if palabra_lower == incorrecta:
                 correcciones.append(correcta)
         
-        # Regla: reemplazar 's' por 'c' en palabras que terminan en 'cion'
         if palabra_lower.endswith('cion') and not palabra_lower.endswith('sion'):
             correcciones.append(palabra[:-4] + 'ción')
         
         return correcciones
     
     def detectar_errores(self, texto: str) -> List[Dict]:
-        """Detecta errores dudosos"""
         errores = []
         palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
         
@@ -514,7 +464,6 @@ class CorrectorOrtografico:
         return errores
     
     def _buscar_sugerencias(self, palabra: str) -> List[str]:
-        """Busca sugerencias para una palabra"""
         sugerencias = []
         correcciones = self._reglas_correccion(palabra)
         sugerencias.extend(correcciones)
@@ -531,24 +480,26 @@ class CorrectorOrtografico:
         return sugerencias
     
     def _similitud_simple(self, s1: str, s2: str) -> float:
-        """Calcula similitud simple entre dos palabras"""
         if not s1 or not s2:
             return 0
-        
         matches = sum(1 for a, b in zip(s1, s2) if a == b)
         return matches / max(len(s1), len(s2))
 
 class ProcesadorMensajes:
-    """Procesa mensajes de WhatsApp - Soporta múltiples formatos"""
+    """Procesador con soporte mejorado para múltiples formatos"""
     
-    # Formato 1: WhatsApp Web/Desktop (con corchetes)
-    PATRON_WEB = r'\[(\d{1,2}:\d{2})\s*(a\.m\.|p\.m\.)?,\s*(\d{1,2}/\d{1,2}/\d{2,4})\]\s*([^:]+):\s*(.*)'
+    # --- PATRONES MEJORADOS ---
+    # 1. WhatsApp Web con AM/PM (incluye espacios como "p. m.")
+    PATRON_WEB = r'\[(\d{1,2}:\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?)?\s*,\s*(\d{1,2}/\d{1,2}/\d{2,4})\]\s*([^:]+):\s*(.*)'
     
-    # Formato 2: WhatsApp móvil (sin corchetes)
+    # 2. WhatsApp Web sin AM/PM (24h)
+    PATRON_WEB_24H = r'\[(\d{1,2}:\d{2})\s*,\s*(\d{1,2}/\d{1,2}/\d{2,4})\]\s*([^:]+):\s*(.*)'
+    
+    # 3. WhatsApp móvil (sin corchetes)
     PATRON_MOVIL = r'(\d{1,2}/\d{1,2}/\d{2,4})[,\s]+(\d{1,2}:\d{2})\s*-\s*([^:]+):\s*(.*)'
     
-    # Formato 3: Con hora en 24h sin AM/PM
-    PATRON_WEB_24H = r'\[(\d{1,2}:\d{2}),\s*(\d{1,2}/\d{1,2}/\d{2,4})\]\s*([^:]+):\s*(.*)'
+    # 4. Formato alternativo con guión
+    PATRON_ALT = r'(\d{1,2}/\d{1,2}/\d{2,4})\s+-\s+([^:]+):\s*(.*)'
     
     PATRON_MULTIMEDIA = r'<Multimedia omitido>|IMG[_-]\d+|VIDEO[_-]\d+|\.(jpg|png|gif|mp4|pdf|docx?)'
     PATRON_ADJUNTO = r'Documento omitido|Audio omitido|Archivo omitido|Archivo adjunto'
@@ -557,10 +508,12 @@ class ProcesadorMensajes:
     def __init__(self):
         self.corrector = CorrectorOrtografico()
         self._cache_fechas = {}
+        self._debug_lines = []
     
-    def procesar(self, texto: str) -> List[Mensaje]:
-        """Procesa texto y extrae mensajes"""
+    def procesar(self, texto: str) -> Tuple[List[Mensaje], List[str]]:
+        """Procesa texto y retorna (mensajes, lineas_no_parseadas)"""
         mensajes = []
+        no_parseadas = []
         
         for linea in texto.strip().split('\n'):
             if not linea.strip():
@@ -569,30 +522,35 @@ class ProcesadorMensajes:
             msg = self._parsear_linea(linea)
             if msg:
                 mensajes.append(msg)
+            else:
+                no_parseadas.append(linea.strip())
         
-        return mensajes
+        return mensajes, no_parseadas
     
     def _parsear_linea(self, linea: str) -> Optional[Mensaje]:
-        """Parsea una línea de mensaje"""
-        # Intentar formato 1: WhatsApp Web con AM/PM
+        # Intentar formato Web con AM/PM
         match = re.match(self.PATRON_WEB, linea)
         if match:
-            return self._crear_mensaje_desde_web(match)
+            return self._crear_desde_web(match)
         
-        # Intentar formato 2: WhatsApp móvil
-        match = re.match(self.PATRON_MOVIL, linea)
-        if match:
-            return self._crear_mensaje_desde_movil(match)
-        
-        # Intentar formato 3: WhatsApp Web sin AM/PM
+        # Intentar formato Web 24h
         match = re.match(self.PATRON_WEB_24H, linea)
         if match:
-            return self._crear_mensaje_desde_web_24h(match)
+            return self._crear_desde_web_24h(match)
+        
+        # Intentar formato móvil
+        match = re.match(self.PATRON_MOVIL, linea)
+        if match:
+            return self._crear_desde_movil(match)
+        
+        # Intentar formato alternativo
+        match = re.match(self.PATRON_ALT, linea)
+        if match:
+            return self._crear_desde_alt(match)
         
         return None
     
-    def _crear_mensaje_desde_web(self, match) -> Mensaje:
-        """Crea mensaje desde formato WhatsApp Web"""
+    def _crear_desde_web(self, match) -> Mensaje:
         hora = match.group(1)
         ampm = match.group(2) or ''
         fecha_str = match.group(3)
@@ -604,30 +562,34 @@ class ProcesadorMensajes:
         
         return self._crear_mensaje(fecha, hora_24, autor, contenido)
     
-    def _crear_mensaje_desde_movil(self, match) -> Mensaje:
-        """Crea mensaje desde formato WhatsApp móvil"""
-        fecha_str = match.group(1)
-        hora = match.group(2)
-        autor = match.group(3).strip()
-        contenido = match.group(4).strip()
-        
-        fecha = self._formatear_fecha(fecha_str)
-        
-        return self._crear_mensaje(fecha, hora, autor, contenido)
-    
-    def _crear_mensaje_desde_web_24h(self, match) -> Mensaje:
-        """Crea mensaje desde formato WhatsApp Web 24h"""
+    def _crear_desde_web_24h(self, match) -> Mensaje:
         hora = match.group(1)
         fecha_str = match.group(2)
         autor = match.group(3).strip()
         contenido = match.group(4).strip()
         
         fecha = self._formatear_fecha(fecha_str)
-        
         return self._crear_mensaje(fecha, hora, autor, contenido)
     
+    def _crear_desde_movil(self, match) -> Mensaje:
+        fecha_str = match.group(1)
+        hora = match.group(2)
+        autor = match.group(3).strip()
+        contenido = match.group(4).strip()
+        
+        fecha = self._formatear_fecha(fecha_str)
+        return self._crear_mensaje(fecha, hora, autor, contenido)
+    
+    def _crear_desde_alt(self, match) -> Mensaje:
+        fecha_str = match.group(1)
+        autor = match.group(2).strip()
+        contenido = match.group(3).strip()
+        
+        fecha = self._formatear_fecha(fecha_str)
+        # Hora por defecto 00:00
+        return self._crear_mensaje(fecha, "00:00", autor, contenido)
+    
     def _crear_mensaje(self, fecha: str, hora: str, autor: str, contenido: str) -> Mensaje:
-        """Crea objeto Mensaje con detección de metadatos"""
         es_multimedia = bool(re.search(self.PATRON_MULTIMEDIA, contenido, re.IGNORECASE))
         es_enlace = bool(re.search(self.PATRON_ENLACE, contenido))
         es_adjunto = bool(re.search(self.PATRON_ADJUNTO, contenido, re.IGNORECASE))
@@ -645,22 +607,20 @@ class ProcesadorMensajes:
         )
     
     def _convertir_hora(self, hora: str, ampm: str) -> str:
-        """Convierte hora AM/PM a 24h"""
         if not ampm:
             return hora
-        
         try:
             h, m = map(int, hora.split(':'))
-            if 'p.m.' in ampm.lower() and h < 12:
+            ampm_clean = ampm.lower().replace(' ', '').replace('.', '')
+            if 'pm' in ampm_clean and h < 12:
                 h += 12
-            elif 'a.m.' in ampm.lower() and h == 12:
+            elif 'am' in ampm_clean and h == 12:
                 h = 0
             return f"{h:02d}:{m:02d}"
         except:
             return hora
     
     def _formatear_fecha(self, fecha_str: str) -> str:
-        """Formatea fecha a DD-MM"""
         if fecha_str in self._cache_fechas:
             return self._cache_fechas[fecha_str]
         
@@ -683,22 +643,16 @@ class ProcesadorMensajes:
     
     def limpiar_mensaje(self, msg: Mensaje, eliminar_enlaces: bool = True, 
                         eliminar_adjuntos: bool = True) -> str:
-        """Limpia el contenido de un mensaje"""
         contenido = msg.contenido
-        
         if eliminar_enlaces:
             contenido = re.sub(self.PATRON_ENLACE, '', contenido)
-        
         if eliminar_adjuntos:
             contenido = re.sub(self.PATRON_MULTIMEDIA, '', contenido, flags=re.IGNORECASE)
             contenido = re.sub(self.PATRON_ADJUNTO, '', contenido, flags=re.IGNORECASE)
-        
         contenido = re.sub(r'\d{1,2}:\d{2}', '', contenido)
-        
         return contenido.strip()
     
     def generar_markdown(self, mensajes: List[Mensaje], opciones: Dict) -> str:
-        """Genera markdown formateado"""
         if not mensajes:
             return ""
         
@@ -708,21 +662,17 @@ class ProcesadorMensajes:
         for msg in mensajes:
             if msg.es_metadato and opciones.get('eliminar_adjuntos', True):
                 continue
-            
             contenido = self.limpiar_mensaje(
                 msg,
                 eliminar_enlaces=opciones.get('eliminar_enlaces', True),
                 eliminar_adjuntos=opciones.get('eliminar_adjuntos', True)
             )
-            
             if not contenido:
                 continue
-            
             autores.add(msg.autor)
             mensajes_por_dia[msg.fecha].append(contenido)
         
         lineas = []
-        
         if opciones.get('incluir_titulo', True):
             mes_actual = datetime.now().month
             meses_romanos = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',
@@ -735,19 +685,15 @@ class ProcesadorMensajes:
         
         for fecha, contenidos in sorted(mensajes_por_dia.items()):
             lineas.append(f"## {fecha}")
-            
             if opciones.get('agrupar', False):
                 contenidos = self._agrupar_contenidos(contenidos)
-            
             for contenido in contenidos:
                 if opciones.get('corregir', False):
                     contenido, _ = self.corrector.corregir_texto(
                         contenido, 
                         solo_seguro=opciones.get('correccion_segura', True)
                     )
-                
                 lineas.append(contenido)
-            
             lineas.append("")
         
         if opciones.get('incluir_estadisticas', False):
@@ -761,10 +707,8 @@ class ProcesadorMensajes:
         return '\n'.join(lineas)
     
     def _agrupar_contenidos(self, contenidos: List[str]) -> List[str]:
-        """Agrupa contenidos cortos consecutivos"""
         agrupados = []
         i = 0
-        
         while i < len(contenidos):
             if i + 1 < len(contenidos) and len(contenidos[i]) < 80 and len(contenidos[i+1]) < 80:
                 agrupados.append(contenidos[i] + ' ' + contenidos[i+1])
@@ -772,25 +716,20 @@ class ProcesadorMensajes:
             else:
                 agrupados.append(contenidos[i])
                 i += 1
-        
         return agrupados
 
-# --- Funciones de la UI ---
+# --- Funciones UI ---
 
 def mostrar_diccionario_personal():
-    """Muestra y gestiona el diccionario personal"""
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📚 DICCIONARIO PERSONAL")
     
     if st.session_state.diccionario_personal:
         palabras = sorted(st.session_state.diccionario_personal)
         st.sidebar.markdown(f"**{len(palabras)} palabras cargadas:**")
-        
         cols = st.sidebar.columns(3)
         for i, palabra in enumerate(palabras[:30]):
-            cols[i % 3].markdown(f'<span class="dict-tag">{palabra}</span>', 
-                               unsafe_allow_html=True)
-        
+            cols[i % 3].markdown(f'<span class="dict-tag">{palabra}</span>', unsafe_allow_html=True)
         if len(palabras) > 30:
             st.sidebar.markdown(f"... y {len(palabras) - 30} más")
     else:
@@ -808,7 +747,7 @@ def mostrar_diccionario_personal():
                 palabra_limpia = nueva_palabra.strip().lower()
                 if palabra_limpia not in st.session_state.diccionario_personal:
                     st.session_state.diccionario_personal.add(palabra_limpia)
-                    st.success(f"✅ '{palabra_limpia}' agregada al diccionario")
+                    st.success(f"✅ '{palabra_limpia}' agregada")
                     st.rerun()
                 else:
                     st.warning(f"⚠️ '{palabra_limpia}' ya existe")
@@ -857,11 +796,9 @@ def mostrar_diccionario_personal():
                 st.error("❌ Error al importar archivo")
 
 def mostrar_historial():
-    """Muestra el historial de procesamiento"""
     if st.session_state.historial:
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 📜 HISTORIAL")
-        
         for i, entry in enumerate(st.session_state.historial[-5:]):
             with st.sidebar.expander(f"⚡ {entry['fecha']} - {entry['mensajes']} msgs"):
                 st.text(entry['preview'][:200] + "...")
@@ -870,7 +807,6 @@ def mostrar_historial():
                     st.rerun()
 
 def mostrar_estadisticas(mensajes: List[Mensaje], texto_salida: str):
-    """Muestra estadísticas del procesamiento"""
     if mensajes:
         total_mensajes = len(mensajes)
         mensajes_por_dia = defaultdict(int)
@@ -887,40 +823,30 @@ def mostrar_estadisticas(mensajes: List[Mensaje], texto_salida: str):
         col2.metric("📅 DÍAS", len(mensajes_por_dia))
         col3.metric("👤 AUTORES", len(autores))
         col4.metric("📝 PALABRAS", palabras_totales)
-        
-        if texto_salida:
-            st.info(f"📄 Texto generado: {len(texto_salida)} caracteres, {len(texto_salida.split())} palabras")
 
 def mostrar_efecto_matrix():
-    """Muestra el efecto Matrix en la consola"""
     if st.session_state.matrix_effect:
         matrix_chars = "01"
         matrix_lines = []
         for _ in range(10):
             line = ''.join(random.choice(matrix_chars) for _ in range(50))
             matrix_lines.append(line)
-        
         st.sidebar.markdown("---")
         st.sidebar.markdown("### ⚡ MATRIX")
         for line in matrix_lines:
             st.sidebar.text(line)
 
-# --- Función Principal ---
+# --- Main ---
 def main():
-    """Función principal de la app"""
-    
-    # --- Header Cyberpunk ---
     st.markdown("""
     <div style="text-align: center; padding: 20px 0;">
         <div class="main-header">⚡ BITÁCORA CYBERPUNK</div>
-        <div class="sub-header">[ SYSTEM v2.0 ] :: [ INTEGRACIÓN WHATSAPP → JOPLIN ] :: [ MATRIX MODE ]</div>
+        <div class="sub-header">[ SYSTEM v2.1 ] :: [ INTEGRACIÓN WHATSAPP → JOPLIN ] :: [ MATRIX MODE ]</div>
     </div>
     """, unsafe_allow_html=True)
     
-    # --- Sidebar ---
     with st.sidebar:
         st.markdown("### ⚙️ CONFIGURACIÓN")
-        
         corregir = st.checkbox("🔤 Corregir tildes", value=True)
         deteccion = st.checkbox("🔍 Detectar errores", value=True)
         eliminar_enlaces = st.checkbox("🔗 Eliminar enlaces", value=True)
@@ -929,40 +855,28 @@ def main():
         correccion_segura = st.checkbox("🔒 Solo corrección segura", value=True)
         
         st.markdown("---")
-        
-        # Opciones adicionales
         mostrar_autores = st.checkbox("👤 Mostrar autores", value=False)
         incluir_titulo = st.checkbox("📌 Incluir título mensual", value=True)
         incluir_estadisticas = st.checkbox("📊 Incluir estadísticas", value=False)
         
         titulo_personalizado = ""
         if incluir_titulo:
-            titulo_personalizado = st.text_input(
-                "Título personalizado:",
-                placeholder="ej: Omniutopia"
-            )
+            titulo_personalizado = st.text_input("Título personalizado:", placeholder="ej: Omniutopia")
         
-        # Diccionario personal
         mostrar_diccionario_personal()
-        
-        # Historial
         mostrar_historial()
         
-        # Efecto Matrix
         if st.sidebar.button("🌀 ACTIVAR MATRIX", use_container_width=True):
             st.session_state.matrix_effect = not st.session_state.matrix_effect
             st.rerun()
-        
         if st.session_state.matrix_effect:
             mostrar_efecto_matrix()
     
     # --- Área principal ---
-    
-    # Input de texto
     st.markdown("### 📝 MENSAJES DE WHATSAPP")
     st.markdown("""
     <div style="font-family: 'Courier New', monospace; color: #00cc33; font-size: 0.9rem; opacity: 0.7;">
-    [ Sistema de reconocimiento automático de formatos ]
+    [ Formatos soportados: Web (AM/PM), Web (24h), Móvil, Alternativo ]
     </div>
     """, unsafe_allow_html=True)
     
@@ -974,7 +888,6 @@ def main():
         label_visibility="collapsed"
     )
     
-    # Botones
     col1, col2, col3, col4 = st.columns([1, 1, 1, 4])
     with col1:
         btn_generar = st.button("🚀 GENERAR", type="primary", use_container_width=True)
@@ -993,13 +906,13 @@ def main():
                 </script>
                 """, unsafe_allow_html=True)
     
-    # Procesamiento
     if btn_generar and texto_input:
         with st.spinner("⏳ Procesando mensajes..."):
             try:
                 procesador = ProcesadorMensajes()
-                mensajes = procesador.procesar(texto_input)
+                mensajes, no_parseadas = procesador.procesar(texto_input)
                 st.session_state.mensajes_procesados = mensajes
+                st.session_state.debug_lines = no_parseadas
                 
                 if not mensajes:
                     st.markdown("""
@@ -1010,6 +923,13 @@ def main():
                     </span>
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    if no_parseadas:
+                        with st.expander("🔍 Líneas no reconocidas (primeras 10)"):
+                            for i, linea in enumerate(no_parseadas[:10]):
+                                st.code(linea, language="text")
+                            if len(no_parseadas) > 10:
+                                st.info(f"... y {len(no_parseadas)-10} líneas más")
                 else:
                     opciones = {
                         'corregir': corregir,
@@ -1037,13 +957,14 @@ def main():
                         'preview': texto_salida[:100],
                         'contenido': texto_salida
                     })
-                    
                     st.session_state.contador_procesados += 1
                     
                     st.markdown("---")
                     st.markdown("### 📄 RESULTADO")
-                    
                     mostrar_estadisticas(mensajes, texto_salida)
+                    
+                    if no_parseadas:
+                        st.warning(f"⚠️ {len(no_parseadas)} líneas no se pudieron parsear. Revisa el formato.")
                     
                     if errores:
                         with st.expander(f"🔍 Errores ortográficos detectados ({len(errores)})"):
@@ -1086,13 +1007,13 @@ def main():
     if btn_limpiar:
         st.session_state.texto_salida = ""
         st.session_state.mensajes_procesados = []
+        st.session_state.debug_lines = []
         st.rerun()
     
-    # --- Footer Cyberpunk ---
     st.markdown("---")
     st.markdown(f"""
     <div style='text-align: center; font-family: "Courier New", monospace; color: #00cc33; opacity: 0.5; font-size: 0.8rem;'>
-    ⚡ BITÁCORA CYBERPUNK v2.0 ⚡<br>
+    ⚡ BITÁCORA CYBERPUNK v2.1 ⚡<br>
     Procesados: {st.session_state.contador_procesados} archivos | 
     Diccionario: {len(st.session_state.diccionario_personal)} palabras personalizadas<br>
     <span style='font-size: 0.7rem; opacity: 0.3;'>
