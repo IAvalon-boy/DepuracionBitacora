@@ -1,8 +1,9 @@
 """
-Transcripción Bitácora v4.4
-Sistema de transcripción WhatsApp → Markdown + Corrector ortográfico con spaCy y pyspellchecker
+Transcripción Bitácora v5.0
+Sistema de transcripción WhatsApp → Markdown + Corrector ortográfico con pyspellchecker y reglas diacríticas
+Sin dependencias pesadas (spaCy eliminado para mayor velocidad y compatibilidad en Streamlit Cloud)
 Estilo consola Matrix
-Dependencias: streamlit, spacy, pyspellchecker (vía requirements.txt)
+Dependencias: streamlit, pyspellchecker
 """
 
 import streamlit as st
@@ -13,12 +14,15 @@ from typing import List, Optional, Dict, Tuple
 from collections import defaultdict
 import json
 import random
-import os
-import tempfile
 
 # --- Importar dependencias ---
-import spacy
-from spellchecker import SpellChecker
+try:
+    from spellchecker import SpellChecker
+except ImportError:
+    st.error("⚠️ Error: 'pyspellchecker' no está instalado. Asegúrate de tenerlo en requirements.txt.")
+    st.stop()
+
+spell = SpellChecker(language='es')
 
 # --- Configuración de página ---
 st.set_page_config(
@@ -27,28 +31,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# --- Función para cargar spaCy con caché ---
-@st.cache_resource
-def load_spacy_model():
-    """Carga el modelo de español de spaCy con caché en disco."""
-    model_name = "es_core_news_sm"
-    try:
-        # Intentar cargar el modelo
-        nlp = spacy.load(model_name)
-        return nlp
-    except OSError:
-        # Si no existe, descargar sin bloquear (streamlit lo maneja en segundo plano)
-        with st.spinner("⏳ Descargando modelo de español de spaCy (solo la primera vez)..."):
-            spacy.cli.download(model_name)
-        nlp = spacy.load(model_name)
-        return nlp
-
-# --- Cargar modelo (con caché) ---
-nlp = load_spacy_model()
-
-# --- Inicializar pyspellchecker (ligero) ---
-spell = SpellChecker(language='es')
 
 # --- Estilo Matrix (consola) ---
 st.markdown("""
@@ -132,20 +114,37 @@ def init_state():
             st.session_state[k] = v
 init_state()
 
-# --- CORRECTOR ORTOGRÁFICO CON SPACY + PYSPELLCHECKER ---
+# --- CORRECTOR ORTOGRÁFICO CON PYSPELLCHECKER + REGLAS DIACRÍTICAS ---
 
 class CorrectorOrtografico:
-    """Corrector ortográfico basado en spaCy (contexto) y pyspellchecker (errores tipográficos)."""
+    """Corrector ortográfico con pyspellchecker y reglas diacríticas (sin spaCy)."""
     
     def __init__(self):
         self.personal = st.session_state.diccionario_personal
         self.base = self._cargar_diccionario_base()
-        self.nlp = nlp
         self.spell = spell
         self.cache = {}
+        # Reglas de tildes diacríticas (contexto básico)
+        self.diacriticas = {
+            'mas': {'sin': 'mas', 'con': 'más'},  # conjunción vs adverbio
+            'si': {'sin': 'si', 'con': 'sí'},     # condicional vs afirmación/reflexivo
+            'te': {'sin': 'te', 'con': 'té'},     # pronombre vs sustantivo
+            'mi': {'sin': 'mi', 'con': 'mí'},     # posesivo vs pronombre
+            'de': {'sin': 'de', 'con': 'dé'},     # preposición vs verbo dar
+            'se': {'sin': 'se', 'con': 'sé'},     # pronombre vs verbo saber
+            'el': {'sin': 'el', 'con': 'él'},     # artículo vs pronombre
+            'tu': {'sin': 'tu', 'con': 'tú'},     # posesivo vs pronombre
+            'que': {'sin': 'que', 'con': 'qué'},  # relativo vs interrogativo
+            'cual': {'sin': 'cual', 'con': 'cuál'},
+            'quien': {'sin': 'quien', 'con': 'quién'},
+            'como': {'sin': 'como', 'con': 'cómo'},
+            'cuando': {'sin': 'cuando', 'con': 'cuándo'},
+            'donde': {'sin': 'donde', 'con': 'dónde'},
+            'cuanto': {'sin': 'cuanto', 'con': 'cuánto'}
+        }
     
     def _cargar_diccionario_base(self) -> set:
-        """Diccionario de palabras comunes (sin tildes) para no corregir, excepto diacríticas."""
+        """Diccionario de palabras comunes (sin tildes) para no corregir."""
         return {
             'yo','tu','el','ella','ello','nosotros','vosotros','ellos',
             'mi','ti','si','con','sin','para','por','de','en','a','ante',
@@ -192,106 +191,91 @@ class CorrectorOrtografico:
             'algo','nada','todo','cada','otro','mismo','propio','solo'
         }
     
-    def _palabras_diacriticas(self) -> set:
-        """Palabras que pueden tener tilde diacrítica según contexto."""
-        return {'mas', 'si', 'te', 'mi', 'de', 'se', 'el', 'tu', 'que', 'cual', 'quien', 'como', 'cuando', 'donde', 'cuanto'}
-    
-    def _corregir_token(self, token) -> Optional[str]:
-        """Decide la corrección basada en la etiqueta POS de spaCy y reglas diacríticas."""
-        palabra = token.text.lower()
-        pos = token.pos_
-        
-        # Casos especiales con tilde diacrítica
+    def _corregir_diacritica(self, palabra: str, pos: int, texto: str) -> Optional[str]:
+        """Reglas básicas de contexto para tildes diacríticas."""
+        if palabra not in self.diacriticas:
+            return None
+        # Heurística simple: si la palabra está al inicio de la oración o después de signo de apertura,
+        # y es de tipo interrogativo/exclamativo, poner tilde
+        # Para casos como 'mas' (conjunción vs adverbio), usamos una heurística de posición:
+        # Si va seguida de adjetivo o adverbio, probablemente es 'más' (comparativo)
+        # Si va seguida de conjunción, es 'mas' (adversativa)
+        # Esta es una simplificación; para mejor precisión, usaríamos spaCy.
         if palabra == 'mas':
-            if pos == 'SCONJ':       # conjunción subordinante (sin tilde)
-                return 'mas'
-            elif pos in ['ADV', 'CCONJ']:
+            # Si la palabra siguiente es un adjetivo o adverbio, es 'más'
+            # Si es 'que' o 'si', es 'mas'
+            resto = texto[pos + len(palabra):].strip()
+            if resto and resto[0] in ['a','e','i','o','u','y']:
                 return 'más'
-        elif palabra == 'si':
-            if pos == 'SCONJ':       # conjunción condicional
-                return 'si'
-            elif pos in ['PRON', 'PART', 'INTJ']:
-                return 'sí'
-        elif palabra == 'te':
-            if pos == 'PRON':        # pronombre personal
-                return 'te'
-            elif pos == 'NOUN':      # sustantivo (té)
-                return 'té'
-        elif palabra == 'mi':
-            if pos in ['DET', 'PRON']:
-                return 'mi'
-            elif pos == 'NOUN':
-                return 'mí'
-        elif palabra == 'de':
-            if pos == 'ADP':         # preposición
-                return 'de'
-            elif pos == 'VERB':      # verbo dar (subjuntivo)
-                return 'dé'
-        elif palabra == 'se':
-            if pos == 'PRON':        # reflexivo
-                return 'se'
-            elif pos in ['VERB', 'AUX']:
-                return 'sé'
-        elif palabra == 'el':
-            if pos == 'DET':         # artículo
-                return 'el'
-            elif pos == 'PRON':      # pronombre personal
-                return 'él'
-        elif palabra == 'tu':
-            if pos == 'DET':         # posesivo
-                return 'tu'
-            elif pos == 'PRON':      # pronombre personal
-                return 'tú'
-        # Para interrogativos/exclamativos (que, cual, quien, como, cuando, donde, cuanto)
+            if resto.startswith('que') or resto.startswith('si'):
+                return 'mas'
+            return 'más'  # Por defecto, más
+        # Si es un interrogativo/exclamativo (qué, cuál, quién, cómo, cuándo, dónde, cuánto)
         if palabra in ['que', 'cual', 'quien', 'como', 'cuando', 'donde', 'cuanto']:
-            # Si el token es pronombre interrogativo o exclamativo (heurística)
-            if (token.dep_ in ['advmod', 'ROOT', 'nsubj', 'obj'] and 
-                (token.i == 0 or (token.i > 0 and token.nbor(-1).text in ['¿', '¡']))):
-                tilde_map = {
-                    'que': 'qué', 'cual': 'cuál', 'quien': 'quién',
-                    'como': 'cómo', 'cuando': 'cuándo', 'donde': 'dónde',
-                    'cuanto': 'cuánto'
-                }
-                return tilde_map.get(palabra, palabra)
-        
-        # Si no es diacrítica, usar pyspellchecker para errores tipográficos
-        if palabra not in self.base and palabra not in self.personal:
-            if self.spell.unknown([palabra]):
-                sugerencias = self.spell.candidates(palabra)
-                if sugerencias:
-                    return list(sugerencias)[0]
+            # Si está al inicio de la oración o después de signo de apertura
+            if pos == 0 or (pos > 0 and texto[pos-1] in ['¿', '¡']):
+                return self.diacriticas[palabra]['con']
+            # Si está en posición de pregunta directa (heurística: seguido de verbo)
+            resto = texto[pos + len(palabra):].strip()
+            if resto and resto[0] in ['e', 's', 't', 'h', 'd', 'p', 'c']:  # posibles inicios de verbo
+                # Esto es muy simplista, pero al menos cubre muchos casos
+                return self.diacriticas[palabra]['con']
         return None
     
     def corregir(self, texto: str) -> Tuple[str, List[str]]:
         """
-        Corrige el texto usando spaCy para contexto y pyspellchecker para errores.
-        Retorna (texto_corregido, lista_de_cambios).
+        Corrige el texto usando pyspellchecker para errores tipográficos
+        y reglas heurísticas para tildes diacríticas.
         """
         if not texto:
             return texto, []
         
-        doc = self.nlp(texto)
-        correcciones = []  # (inicio, fin, palabra_corregida)
         cambios = []
+        texto_original = texto
+        # Dividir en palabras respetando puntuación
+        # Usamos un patrón para capturar palabras con sus posiciones
+        patron = re.compile(r'\b([a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+)\b')
         
-        for token in doc:
-            palabra = token.text
-            if not re.match(r'^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+$', palabra):
+        # Recopilar todas las correcciones
+        correcciones = []  # (inicio, fin, palabra_corregida)
+        
+        for match in patron.finditer(texto):
+            palabra = match.group(1)
+            inicio = match.start(1)
+            fin = match.end(1)
+            palabra_lower = palabra.lower()
+            
+            # Saltar si está en diccionario personal
+            if palabra_lower in self.personal:
                 continue
-            if palabra.lower() in self.personal:
-                continue
-            if palabra.lower() in self.base and palabra.lower() not in self._palabras_diacriticas():
+            # Saltar si está en diccionario base
+            if palabra_lower in self.base:
                 continue
             
-            corregida = self._corregir_token(token)
+            corregida = None
+            
+            # 1. Intentar corrección diacrítica (contexto básico)
+            diacritica = self._corregir_diacritica(palabra_lower, inicio, texto_original)
+            if diacritica:
+                corregida = diacritica
+            
+            # 2. Si no hay corrección diacrítica, usar pyspellchecker
+            if not corregida:
+                if self.spell.unknown([palabra]):
+                    sugerencias = self.spell.candidates(palabra)
+                    if sugerencias:
+                        # Tomar la primera sugerencia
+                        corregida = list(sugerencias)[0]
+            
+            # Aplicar corrección
             if corregida and corregida != palabra:
+                # Preservar mayúsculas
                 if palabra[0].isupper():
                     corregida = corregida.capitalize()
-                inicio = token.idx
-                fin = inicio + len(palabra)
                 correcciones.append((inicio, fin, corregida))
                 cambios.append(f"{palabra} → {corregida}")
         
+        # Aplicar correcciones en orden inverso
         if correcciones:
             chars = list(texto)
             for inicio, fin, corr in sorted(correcciones, reverse=True):
@@ -303,13 +287,11 @@ class CorrectorOrtografico:
         return texto_corregido, cambios
     
     def detectar_errores(self, texto: str) -> List[Dict]:
-        """Detecta posibles errores usando pyspellchecker y spaCy para contexto."""
+        """Detecta posibles errores usando pyspellchecker."""
         errores = []
-        doc = self.nlp(texto)
-        for token in doc:
-            palabra = token.text
-            if not re.match(r'^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+$', palabra):
-                continue
+        patron = re.compile(r'\b([a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+)\b')
+        for match in patron.finditer(texto):
+            palabra = match.group(1)
             if palabra.lower() in self.personal:
                 continue
             if self.spell.unknown([palabra]):
@@ -554,7 +536,7 @@ def sidebar():
 
 def main():
     st.markdown("<div style='text-align:center;'><h1>⌨️ Transcripción Bitácora</h1></div>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center;color:#00cc33;font-family:Courier New;font-size:0.9rem;'>[ SISTEMA DE TRANSCRIPCIÓN WHATSAPP → MARKDOWN + CORRECTOR ORTOGRÁFICO CON SPACY ]</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center;color:#00cc33;font-family:Courier New;font-size:0.9rem;'>[ SISTEMA DE TRANSCRIPCIÓN WHATSAPP → MARKDOWN + CORRECTOR ORTOGRÁFICO ]</p>", unsafe_allow_html=True)
     
     opts = sidebar()
     
