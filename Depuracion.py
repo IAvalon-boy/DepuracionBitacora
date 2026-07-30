@@ -1,7 +1,8 @@
 """
-Transcripción Bitácora v4.1
+Transcripción Bitácora v4.3
 Sistema de transcripción WhatsApp → Markdown + Corrector ortográfico con spaCy y pyspellchecker
 Estilo consola Matrix
+Dependencias: streamlit, spacy, pyspellchecker (vía requirements.txt)
 """
 
 import streamlit as st
@@ -12,26 +13,18 @@ from typing import List, Optional, Dict, Tuple
 from collections import defaultdict
 import json
 import random
-import subprocess
-import sys
 
-# --- Instalación automática de dependencias (solo si faltan) ---
-# Si prefieres usar requirements.txt, comenta este bloque y añade las dependencias en tu archivo.
-try:
-    import spacy
-    from spellchecker import SpellChecker
-except ImportError:
-    st.warning("Instalando dependencias... (solo la primera vez)")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "spacy", "pyspellchecker"])
-    subprocess.check_call([sys.executable, "-m", "spacy", "download", "es_core_news_sm"])
-    st.rerun()
+# --- Importar dependencias (ya instaladas por requirements.txt) ---
+import spacy
+from spellchecker import SpellChecker
 
-# --- Carga de modelos ---
+# --- Cargar modelo de español de spaCy ---
+# Si no está descargado, descargar automáticamente (esto es seguro en Streamlit Cloud)
 try:
     nlp = spacy.load("es_core_news_sm")
 except OSError:
-    st.info("Descargando modelo de español de spaCy...")
-    subprocess.check_call([sys.executable, "-m", "spacy", "download", "es_core_news_sm"])
+    st.info("⏳ Descargando modelo de español de spaCy... (solo la primera vez)")
+    spacy.cli.download("es_core_news_sm")
     nlp = spacy.load("es_core_news_sm")
 
 spell = SpellChecker(language='es')
