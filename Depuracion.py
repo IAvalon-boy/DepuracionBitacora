@@ -1,9 +1,8 @@
 """
-Transcripción Bitácora v5.0
-Sistema de transcripción WhatsApp → Markdown + Corrector ortográfico con pyspellchecker y reglas diacríticas
-Sin dependencias pesadas (spaCy eliminado para mayor velocidad y compatibilidad en Streamlit Cloud)
-Estilo consola Matrix
-Dependencias: streamlit, pyspellchecker
+Transcripción Bitácora v3.3
+Sistema de transcripción WhatsApp → Markdown + Corrección de tildes
+Estilo consola Matrix - Minimalista
+Sin dependencias externas (solo streamlit)
 """
 
 import streamlit as st
@@ -15,15 +14,6 @@ from collections import defaultdict
 import json
 import random
 
-# --- Importar dependencias ---
-try:
-    from spellchecker import SpellChecker
-except ImportError:
-    st.error("⚠️ Error: 'pyspellchecker' no está instalado. Asegúrate de tenerlo en requirements.txt.")
-    st.stop()
-
-spell = SpellChecker(language='es')
-
 # --- Configuración de página ---
 st.set_page_config(
     page_title="Transcripción Bitácora",
@@ -32,13 +22,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Estilo Matrix (consola) ---
+# --- Estilo Matrix completo (consola) ---
 st.markdown("""
 <style>
-    .stApp { background: #0a0a0a !important; }
-    .stApp, .stApp * { font-family: 'Courier New', monospace !important; }
-    h1, h2, h3, .main-header { color: #00ff41 !important; text-shadow: 0 0 5px #00ff41; letter-spacing: 2px; }
+    /* Fondo negro puro */
+    .stApp {
+        background: #0a0a0a !important;
+    }
+    /* Todos los textos en verde neón */
+    .stApp, .stApp * {
+        font-family: 'Courier New', monospace !important;
+    }
+    h1, h2, h3, .main-header {
+        color: #00ff41 !important;
+        text-shadow: 0 0 5px #00ff41;
+        letter-spacing: 2px;
+    }
     h1 { font-size: 2.5rem; }
+    /* Cajas de texto estilo terminal */
     .stTextArea textarea {
         background: #000000 !important;
         color: #00ff41 !important;
@@ -46,7 +47,10 @@ st.markdown("""
         border-radius: 0 !important;
         font-size: 14px !important;
     }
-    .stTextArea textarea:focus { box-shadow: 0 0 20px rgba(0,255,65,0.2) !important; }
+    .stTextArea textarea:focus {
+        box-shadow: 0 0 20px rgba(0,255,65,0.2) !important;
+    }
+    /* Botones consola */
     .stButton button {
         background: #000000 !important;
         color: #00ff41 !important;
@@ -64,9 +68,19 @@ st.markdown("""
         box-shadow: 0 0 30px #00ff41;
         transform: scale(1.02);
     }
-    .stButton button:disabled { opacity: 0.3 !important; cursor: not-allowed !important; }
-    .stCheckbox label { color: #00cc33 !important; font-size: 0.9rem !important; }
-    .stCheckbox input[type="checkbox"] { accent-color: #00ff41 !important; }
+    .stButton button:disabled {
+        opacity: 0.3 !important;
+        cursor: not-allowed !important;
+    }
+    /* Checkboxes y labels */
+    .stCheckbox label {
+        color: #00cc33 !important;
+        font-size: 0.9rem !important;
+    }
+    .stCheckbox input[type="checkbox"] {
+        accent-color: #00ff41 !important;
+    }
+    /* Selectbox y otros inputs */
     .stSelectbox select, .stTextInput input {
         background: #000000 !important;
         color: #00ff41 !important;
@@ -74,28 +88,138 @@ st.markdown("""
         border-radius: 0 !important;
         font-family: 'Courier New', monospace !important;
     }
-    .stCodeBlock { background: #000000 !important; border: 1px solid #00ff41 !important; border-radius: 0 !important; }
-    .stCodeBlock code { color: #00ff41 !important; font-family: 'Courier New', monospace !important; }
-    .css-1xarl3l { background: #000000 !important; border: 1px solid #00ff41 !important; border-radius: 0 !important; }
-    .css-1xarl3l label { color: #00cc33 !important; }
-    .css-1xarl3l .css-1ht1j8u { color: #00ff41 !important; text-shadow: 0 0 10px rgba(0,255,65,0.3); }
-    .css-1d391kg { background: #000000 !important; border-right: 1px solid #00ff41 !important; }
-    .css-1d391kg .stMarkdown { color: #00cc33 !important; }
-    .css-1d391kg h1, .css-1d391kg h2, .css-1d391kg h3 { color: #00ff41 !important; text-shadow: 0 0 10px rgba(0,255,65,0.3); }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: #000000; }
-    ::-webkit-scrollbar-thumb { background: #00ff41; border-radius: 0; }
-    ::-webkit-scrollbar-thumb:hover { background: #00cc33; box-shadow: 0 0 20px rgba(0,255,65,0.5); }
-    hr { border: 0; border-top: 1px solid #00ff41; opacity: 0.3; margin: 20px 0; }
-    .success-box { background: rgba(0,255,65,0.05); border-left: 4px solid #00ff41; padding: 0.8rem 1rem; color: #00ff41; font-family: 'Courier New', monospace; margin: 10px 0; }
-    .warning-box { background: rgba(255,215,0,0.05); border-left: 4px solid #ffd700; padding: 0.8rem 1rem; color: #ffd700; font-family: 'Courier New', monospace; margin: 10px 0; }
-    .error-box { background: rgba(255,0,0,0.05); border-left: 4px solid #ff0044; padding: 0.8rem 1rem; color: #ff4444; font-family: 'Courier New', monospace; margin: 10px 0; }
-    .debug-box { background: rgba(255,0,68,0.05); border: 1px solid #ff0044; padding: 10px; font-family: 'Courier New', monospace; color: #ff6666; font-size: 0.8rem; margin: 10px 0; }
-    .debug-box code { color: #ff4444; background: #1a0000; padding: 2px 6px; display: block; margin: 2px 0; border-left: 2px solid #ff0044; }
-    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
-    .blink { animation: blink 1s step-end infinite; }
-    .dict-tag { background: rgba(0,255,65,0.1); border: 1px solid #00ff41; padding: 0.2rem 0.6rem; border-radius: 0; margin: 0.2rem; display: inline-block; font-size: 0.75rem; color: #00ff41; box-shadow: 0 0 10px rgba(0,255,65,0.1); }
-    .footer { text-align: center; color: #006622; font-family: 'Courier New', monospace; font-size: 0.8rem; opacity: 0.6; margin-top: 20px; border-top: 1px solid #00ff41; padding-top: 15px; }
+    /* Código (resultado) */
+    .stCodeBlock {
+        background: #000000 !important;
+        border: 1px solid #00ff41 !important;
+        border-radius: 0 !important;
+    }
+    .stCodeBlock code {
+        color: #00ff41 !important;
+        font-family: 'Courier New', monospace !important;
+    }
+    /* Métricas */
+    .css-1xarl3l {
+        background: #000000 !important;
+        border: 1px solid #00ff41 !important;
+        border-radius: 0 !important;
+    }
+    .css-1xarl3l label {
+        color: #00cc33 !important;
+    }
+    .css-1xarl3l .css-1ht1j8u {
+        color: #00ff41 !important;
+        text-shadow: 0 0 10px rgba(0,255,65,0.3);
+    }
+    /* Sidebar */
+    .css-1d391kg {
+        background: #000000 !important;
+        border-right: 1px solid #00ff41 !important;
+    }
+    .css-1d391kg .stMarkdown {
+        color: #00cc33 !important;
+    }
+    .css-1d391kg h1, .css-1d391kg h2, .css-1d391kg h3 {
+        color: #00ff41 !important;
+        text-shadow: 0 0 10px rgba(0,255,65,0.3);
+    }
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: #000000;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #00ff41;
+        border-radius: 0;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #00cc33;
+        box-shadow: 0 0 20px rgba(0,255,65,0.5);
+    }
+    /* Línea separadora */
+    hr {
+        border: 0;
+        border-top: 1px solid #00ff41;
+        opacity: 0.3;
+        margin: 20px 0;
+    }
+    /* Mensajes de estado */
+    .success-box {
+        background: rgba(0,255,65,0.05);
+        border-left: 4px solid #00ff41;
+        padding: 0.8rem 1rem;
+        color: #00ff41;
+        font-family: 'Courier New', monospace;
+        margin: 10px 0;
+    }
+    .warning-box {
+        background: rgba(255,215,0,0.05);
+        border-left: 4px solid #ffd700;
+        padding: 0.8rem 1rem;
+        color: #ffd700;
+        font-family: 'Courier New', monospace;
+        margin: 10px 0;
+    }
+    .error-box {
+        background: rgba(255,0,0,0.05);
+        border-left: 4px solid #ff0044;
+        padding: 0.8rem 1rem;
+        color: #ff4444;
+        font-family: 'Courier New', monospace;
+        margin: 10px 0;
+    }
+    /* Debug/No parseadas */
+    .debug-box {
+        background: rgba(255,0,68,0.05);
+        border: 1px solid #ff0044;
+        padding: 10px;
+        font-family: 'Courier New', monospace;
+        color: #ff6666;
+        font-size: 0.8rem;
+        margin: 10px 0;
+    }
+    .debug-box code {
+        color: #ff4444;
+        background: #1a0000;
+        padding: 2px 6px;
+        display: block;
+        margin: 2px 0;
+        border-left: 2px solid #ff0044;
+    }
+    /* Blink para efecto Matrix */
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+    }
+    .blink {
+        animation: blink 1s step-end infinite;
+    }
+    /* Etiquetas de diccionario */
+    .dict-tag {
+        background: rgba(0,255,65,0.1);
+        border: 1px solid #00ff41;
+        padding: 0.2rem 0.6rem;
+        border-radius: 0;
+        margin: 0.2rem;
+        display: inline-block;
+        font-size: 0.75rem;
+        color: #00ff41;
+        box-shadow: 0 0 10px rgba(0,255,65,0.1);
+    }
+    /* Footer */
+    .footer {
+        text-align: center;
+        color: #006622;
+        font-family: 'Courier New', monospace;
+        font-size: 0.8rem;
+        opacity: 0.6;
+        margin-top: 20px;
+        border-top: 1px solid #00ff41;
+        padding-top: 15px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -114,37 +238,17 @@ def init_state():
             st.session_state[k] = v
 init_state()
 
-# --- CORRECTOR ORTOGRÁFICO CON PYSPELLCHECKER + REGLAS DIACRÍTICAS ---
+# --- CORRECTOR ORTOGRÁFICO (sin dependencias) ---
 
 class CorrectorOrtografico:
-    """Corrector ortográfico con pyspellchecker y reglas diacríticas (sin spaCy)."""
-    
     def __init__(self):
         self.personal = st.session_state.diccionario_personal
         self.base = self._cargar_diccionario_base()
-        self.spell = spell
         self.cache = {}
-        # Reglas de tildes diacríticas (contexto básico)
-        self.diacriticas = {
-            'mas': {'sin': 'mas', 'con': 'más'},  # conjunción vs adverbio
-            'si': {'sin': 'si', 'con': 'sí'},     # condicional vs afirmación/reflexivo
-            'te': {'sin': 'te', 'con': 'té'},     # pronombre vs sustantivo
-            'mi': {'sin': 'mi', 'con': 'mí'},     # posesivo vs pronombre
-            'de': {'sin': 'de', 'con': 'dé'},     # preposición vs verbo dar
-            'se': {'sin': 'se', 'con': 'sé'},     # pronombre vs verbo saber
-            'el': {'sin': 'el', 'con': 'él'},     # artículo vs pronombre
-            'tu': {'sin': 'tu', 'con': 'tú'},     # posesivo vs pronombre
-            'que': {'sin': 'que', 'con': 'qué'},  # relativo vs interrogativo
-            'cual': {'sin': 'cual', 'con': 'cuál'},
-            'quien': {'sin': 'quien', 'con': 'quién'},
-            'como': {'sin': 'como', 'con': 'cómo'},
-            'cuando': {'sin': 'cuando', 'con': 'cuándo'},
-            'donde': {'sin': 'donde', 'con': 'dónde'},
-            'cuanto': {'sin': 'cuanto', 'con': 'cuánto'}
-        }
+        self.reglas_acento = self._cargar_reglas_acento()
+        self.reglas_errores = self._cargar_reglas_errores()
     
     def _cargar_diccionario_base(self) -> set:
-        """Diccionario de palabras comunes (sin tildes) para no corregir."""
         return {
             'yo','tu','el','ella','ello','nosotros','vosotros','ellos',
             'mi','ti','si','con','sin','para','por','de','en','a','ante',
@@ -191,119 +295,193 @@ class CorrectorOrtografico:
             'algo','nada','todo','cada','otro','mismo','propio','solo'
         }
     
-    def _corregir_diacritica(self, palabra: str, pos: int, texto: str) -> Optional[str]:
-        """Reglas básicas de contexto para tildes diacríticas."""
-        if palabra not in self.diacriticas:
-            return None
-        # Heurística simple: si la palabra está al inicio de la oración o después de signo de apertura,
-        # y es de tipo interrogativo/exclamativo, poner tilde
-        # Para casos como 'mas' (conjunción vs adverbio), usamos una heurística de posición:
-        # Si va seguida de adjetivo o adverbio, probablemente es 'más' (comparativo)
-        # Si va seguida de conjunción, es 'mas' (adversativa)
-        # Esta es una simplificación; para mejor precisión, usaríamos spaCy.
-        if palabra == 'mas':
-            # Si la palabra siguiente es un adjetivo o adverbio, es 'más'
-            # Si es 'que' o 'si', es 'mas'
-            resto = texto[pos + len(palabra):].strip()
-            if resto and resto[0] in ['a','e','i','o','u','y']:
-                return 'más'
-            if resto.startswith('que') or resto.startswith('si'):
-                return 'mas'
-            return 'más'  # Por defecto, más
-        # Si es un interrogativo/exclamativo (qué, cuál, quién, cómo, cuándo, dónde, cuánto)
-        if palabra in ['que', 'cual', 'quien', 'como', 'cuando', 'donde', 'cuanto']:
-            # Si está al inicio de la oración o después de signo de apertura
-            if pos == 0 or (pos > 0 and texto[pos-1] in ['¿', '¡']):
-                return self.diacriticas[palabra]['con']
-            # Si está en posición de pregunta directa (heurística: seguido de verbo)
-            resto = texto[pos + len(palabra):].strip()
-            if resto and resto[0] in ['e', 's', 't', 'h', 'd', 'p', 'c']:  # posibles inicios de verbo
-                # Esto es muy simplista, pero al menos cubre muchos casos
-                return self.diacriticas[palabra]['con']
-        return None
+    def _cargar_reglas_acento(self) -> Dict[str, str]:
+        return {
+            'camion': 'camión', 'avion': 'avión', 'corazon': 'corazón',
+            'razon': 'razón', 'sazon': 'sazón', 'jamas': 'jamás',
+            'allá': 'allá', 'acá': 'acá', 'tambien': 'también',
+            'si': 'sí', 'ti': 'tí', 'mi': 'mí', 'aun': 'aún',
+            'mas': 'más', 'sol': 'sol', 'pie': 'pie', 'té': 'té',
+            'café': 'café', 'dominó': 'dominó', 'bebe': 'bebé',
+            'arbol': 'árbol', 'facil': 'fácil', 'dificil': 'difícil',
+            'lapiz': 'lápiz', 'boligrafo': 'bolígrafo', 'examen': 'exámen',
+            'imagen': 'imágen', 'joven': 'jóven', 'tunel': 'túnel',
+            'caracter': 'carácter', 'condor': 'cóndor', 'fenix': 'fénix',
+            'practica': 'práctica', 'teorica': 'teórica', 'colegio': 'colegio',
+            'ejercito': 'ejército', 'increible': 'increíble', 'posible': 'posible',
+            'imposible': 'imposible', 'terrible': 'terrible', 'sutil': 'sutil',
+            'hostil': 'hostil', 'movil': 'móvil', 'util': 'útil',
+            'automovil': 'automóvil', 'cesped': 'césped', 'angel': 'ángel',
+            'margen': 'márgen', 'origen': 'origen', 'joven': 'joven',
+            'publico': 'público', 'privado': 'privado', 'historico': 'histórico',
+            'numerico': 'numérico', 'critico': 'crítico', 'sintactico': 'sintáctico',
+            'semantico': 'semántico', 'fonetico': 'fonético', 'estatico': 'estático',
+            'dinamico': 'dinámico', 'electrico': 'eléctrico', 'electronico': 'electrónico',
+            'mecanico': 'mecánico', 'cientifico': 'científico', 'conciencia': 'conciencia',
+            'especie': 'especie', 'algebra': 'álgebra', 'climatico': 'climático',
+            'practico': 'práctico', 'teorico': 'teórico', 'analitico': 'analítico',
+            'sintetico': 'sintético', 'poetico': 'poético', 'magico': 'mágico',
+            'logico': 'lógico', 'etico': 'ético', 'estetico': 'estético',
+            'patetico': 'patético', 'mistico': 'místico', 'ascetico': 'ascético',
+            'pajaro': 'pájaro', 'autobus': 'autobús', 'satelite': 'satélite',
+            'telefono': 'teléfono', 'television': 'televisión',
+            'camera': 'cámara', 'musica': 'música',
+            'podria': 'podría', 'querría': 'querría', 'sabría': 'sabría',
+            'deberia': 'debería', 'estaria': 'estaría', 'tendria': 'tendría',
+            'habria': 'habría', 'seria': 'sería', 'iria': 'iría',
+            'podemos': 'podemos', 'tenemos': 'tenemos', 'vamos': 'vamos',
+            'estamos': 'estamos', 'somos': 'somos', 'veis': 'veis',
+            'podeis': 'podeis', 'tendre': 'tendré', 'tendras': 'tendrás',
+            'tendra': 'tendrá', 'vendras': 'vendrás', 'vendran': 'vendrán',
+            'sobretodo': 'sobre todo', 'irreflexivo': 'irreflexivo',
+            'derribo': 'derribó', 'amas': 'amás', 'dios': 'Dios',
+            'aquel': 'aquél', 'ese': 'ése', 'este': 'éste',
+            'quien': 'quién', 'cual': 'cuál', 'cuanto': 'cuánto',
+            'donde': 'dónde', 'como': 'cómo', 'cuando': 'cuándo',
+            'que': 'qué', 'quienes': 'quiénes'
+        }
+    
+    def _cargar_reglas_errores(self) -> Dict[str, str]:
+        return {
+            'impreativo': 'imperativo',
+            'fenomenologia': 'fenomenología',
+            'hermeneutica': 'hermenéutica',
+            'ontologia': 'ontología',
+            'epistemologia': 'epistemología',
+            'axiologia': 'axiología',
+            'estetica': 'estética',
+            'etica': 'ética',
+            'logica': 'lógica',
+            'poetica': 'poética',
+            'retorica': 'retórica',
+            'dialectica': 'dialéctica',
+            'metafisica': 'metafísica',
+            'psicologia': 'psicología',
+            'sociologia': 'sociología',
+            'antropologia': 'antropología',
+            'teologia': 'teología',
+            'cristologia': 'cristología',
+            'eclesiologia': 'eclesiología',
+            'mariologia': 'mariología',
+            'angelologia': 'angelología',
+            'demonologia': 'demonología',
+            'soteriologia': 'soteriología',
+            'escatologia': 'escatología',
+            'teleologia': 'teleología',
+            'gnoseologia': 'gnoseología',
+            'anatomia': 'anatomía',
+            'fisiologia': 'fisiología',
+            'patologia': 'patología',
+            'neurologia': 'neurología',
+            'psiquiatria': 'psiquiatría',
+            'psicoterapia': 'psicoterapia',
+            'existencial': 'existencial',
+            'inconciencia': 'inconciencia',
+            'subconciencia': 'subconciencia',
+            'superconciencia': 'superconciencia',
+            'parapsicologia': 'parapsicología',
+            'paranormal': 'paranormal',
+            'sobrenatural': 'sobrenatural',
+            'transcendental': 'transcendental',
+            'trascendental': 'trascendental',
+            'inmanente': 'inmanente',
+            'trascendente': 'trascendente',
+            'intrinseco': 'intrínseco',
+            'extrinseco': 'extrínseco',
+            'ontico': 'óntico',
+            'ontologico': 'ontológico',
+            'epistemico': 'epistémico',
+            'gnoseologico': 'gnoseológico',
+            'metodologico': 'metodológico',
+            'teleologico': 'teleológico',
+            'escatologico': 'escatológico',
+            'soterologico': 'soterológico',
+            'telarias': 'telarías',
+            'derribo': 'derribó',
+            'amas': 'amás',
+            'dios': 'Dios',
+            'mas': 'más',
+            'cob': 'cob',
+            'macrodatos': 'macrodatos',
+            'psicohistorial': 'psicohistorial',
+        }
     
     def corregir(self, texto: str) -> Tuple[str, List[str]]:
-        """
-        Corrige el texto usando pyspellchecker para errores tipográficos
-        y reglas heurísticas para tildes diacríticas.
-        """
         if not texto:
             return texto, []
-        
         cambios = []
-        texto_original = texto
-        # Dividir en palabras respetando puntuación
-        # Usamos un patrón para capturar palabras con sus posiciones
-        patron = re.compile(r'\b([a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+)\b')
-        
-        # Recopilar todas las correcciones
-        correcciones = []  # (inicio, fin, palabra_corregida)
-        
-        for match in patron.finditer(texto):
-            palabra = match.group(1)
-            inicio = match.start(1)
-            fin = match.end(1)
-            palabra_lower = palabra.lower()
-            
-            # Saltar si está en diccionario personal
-            if palabra_lower in self.personal:
+        palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
+        for palabra in set(palabras):
+            if len(palabra) < 2:
                 continue
-            # Saltar si está en diccionario base
-            if palabra_lower in self.base:
-                continue
-            
-            corregida = None
-            
-            # 1. Intentar corrección diacrítica (contexto básico)
-            diacritica = self._corregir_diacritica(palabra_lower, inicio, texto_original)
-            if diacritica:
-                corregida = diacritica
-            
-            # 2. Si no hay corrección diacrítica, usar pyspellchecker
-            if not corregida:
-                if self.spell.unknown([palabra]):
-                    sugerencias = self.spell.candidates(palabra)
-                    if sugerencias:
-                        # Tomar la primera sugerencia
-                        corregida = list(sugerencias)[0]
-            
-            # Aplicar corrección
-            if corregida and corregida != palabra:
-                # Preservar mayúsculas
-                if palabra[0].isupper():
-                    corregida = corregida.capitalize()
-                correcciones.append((inicio, fin, corregida))
-                cambios.append(f"{palabra} → {corregida}")
-        
-        # Aplicar correcciones en orden inverso
-        if correcciones:
-            chars = list(texto)
-            for inicio, fin, corr in sorted(correcciones, reverse=True):
-                chars[inicio:fin] = list(corr)
-            texto_corregido = ''.join(chars)
-        else:
-            texto_corregido = texto
-        
-        return texto_corregido, cambios
-    
-    def detectar_errores(self, texto: str) -> List[Dict]:
-        """Detecta posibles errores usando pyspellchecker."""
-        errores = []
-        patron = re.compile(r'\b([a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+)\b')
-        for match in patron.finditer(texto):
-            palabra = match.group(1)
             if palabra.lower() in self.personal:
                 continue
-            if self.spell.unknown([palabra]):
-                sugerencias = self.spell.candidates(palabra)
-                if sugerencias:
-                    errores.append({
-                        'palabra': palabra,
-                        'sugerencias': list(sugerencias)[:3]
-                    })
+            if palabra.lower() in self.base:
+                continue
+            corregida = self._aplicar_reglas(palabra.lower())
+            if corregida and corregida != palabra.lower():
+                if palabra[0].isupper():
+                    corregida = corregida.capitalize()
+                texto = texto.replace(palabra, corregida)
+                cambios.append(f"{palabra} → {corregida}")
+                continue
+            corregida = self.reglas_errores.get(palabra.lower())
+            if corregida:
+                if palabra[0].isupper():
+                    corregida = corregida.capitalize()
+                texto = texto.replace(palabra, corregida)
+                cambios.append(f"{palabra} → {corregida}")
+        return texto, cambios
+    
+    def _aplicar_reglas(self, palabra: str) -> Optional[str]:
+        if palabra in self.cache:
+            return self.cache[palabra]
+        if palabra in self.reglas_acento:
+            corr = self.reglas_acento[palabra]
+            self.cache[palabra] = corr
+            return corr
+        if palabra.endswith('cion') and not palabra.endswith('sion'):
+            corr = palabra[:-4] + 'ción'
+            self.cache[palabra] = corr
+            return corr
+        if palabra.endswith('sion') and not palabra.endswith('sión'):
+            corr = palabra[:-4] + 'sión'
+            self.cache[palabra] = corr
+            return corr
+        return None
+    
+    def detectar_errores(self, texto: str) -> List[Dict]:
+        errores = []
+        palabras = re.findall(r'\b[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+\b', texto)
+        for palabra in set(palabras):
+            if len(palabra) < 3:
+                continue
+            if palabra.lower() in self.personal:
+                continue
+            if palabra.lower() in self.base:
+                continue
+            sugerencias = self._sugerir(palabra.lower())
+            if sugerencias:
+                errores.append({'palabra': palabra, 'sugerencias': sugerencias[:3]})
         return errores
+    
+    def _sugerir(self, palabra: str) -> List[str]:
+        sugs = []
+        if palabra in self.reglas_acento:
+            sugs.append(self.reglas_acento[palabra])
+        if palabra in self.reglas_errores:
+            sugs.append(self.reglas_errores[palabra])
+        pl = palabra
+        for b in self.base:
+            if len(b) > 3 and abs(len(b)-len(pl)) <= 2:
+                sim = sum(1 for a,c in zip(pl,b) if a==c) / max(len(pl), len(b))
+                if sim > 0.7:
+                    sugs.append(b)
+                    if len(sugs) >= 3:
+                        break
+        return sugs
 
-# --- PROCESADOR DE MENSAJES DE WHATSAPP ---
+# --- PROCESADOR DE MENSAJES ---
 
 @dataclass
 class Mensaje:
@@ -474,12 +652,12 @@ class Procesador:
                 i += 1
         return res
 
-# --- FUNCIONES DE INTERFAZ ---
+# --- FUNCIONES DE LA INTERFAZ ---
 
 def sidebar():
     with st.sidebar:
         st.markdown("### ⚙️ CONFIG")
-        corregir = st.checkbox("🔤 Corregir tildes y ortografía", True)
+        corregir = st.checkbox("🔤 Corregir tildes", True)
         detectar = st.checkbox("🔍 Detectar errores", True)
         elim_enlaces = st.checkbox("🔗 Eliminar enlaces", True)
         elim_adj = st.checkbox("📎 Eliminar adjuntos", True)
@@ -535,11 +713,14 @@ def sidebar():
 # --- MAIN ---
 
 def main():
+    # Título principal
     st.markdown("<div style='text-align:center;'><h1>⌨️ Transcripción Bitácora</h1></div>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center;color:#00cc33;font-family:Courier New;font-size:0.9rem;'>[ SISTEMA DE TRANSCRIPCIÓN WHATSAPP → MARKDOWN + CORRECTOR ORTOGRÁFICO ]</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center;color:#00cc33;font-family:Courier New;font-size:0.9rem;'>[ SISTEMA DE TRANSCRIPCIÓN WHATSAPP → MARKDOWN + CORRECTOR DE TILDES ]</p>", unsafe_allow_html=True)
     
+    # Obtener opciones de la barra lateral
     opts = sidebar()
     
+    # Área de texto (sin etiquetas ni instrucciones)
     texto = st.text_area(
         "",
         height=250,
@@ -547,6 +728,7 @@ def main():
         label_visibility="collapsed"
     )
     
+    # Botones
     col1, col2, col3 = st.columns([1, 1, 4])
     with col1:
         generar = st.button("🚀 GENERAR", use_container_width=True)
@@ -564,16 +746,19 @@ def main():
             </script>
             """, unsafe_allow_html=True)
     
+    # Limpiar
     if limpiar:
         st.session_state.texto_salida = ""
         st.session_state.debug_lines = []
         st.rerun()
     
+    # Procesar
     if generar and texto:
         with st.spinner("⏳ Procesando..."):
             proc = Procesador()
             mensajes, no_parseadas = proc.procesar(texto)
             
+            # --- MODO TEXTO PLANO (sin mensajes) ---
             if not mensajes and texto.strip():
                 st.info("📝 No se detectaron mensajes con formato WhatsApp. Procesando como texto plano...")
                 if opts['corregir']:
@@ -600,6 +785,7 @@ def main():
                 )
                 st.success("✅ Texto corregido y listo para copiar.")
             
+            # --- MODO WHATSAPP (con mensajes) ---
             else:
                 if not mensajes:
                     st.error("⚠️ No se encontraron mensajes válidos.")
@@ -614,6 +800,7 @@ def main():
                     md = proc.generar_markdown(mensajes, opts)
                     st.session_state.texto_salida = md
                     
+                    # --- Mostrar líneas no reconocidas (si las hay) ---
                     if no_parseadas:
                         with st.expander(f"⚠️ Líneas no reconocidas ({len(no_parseadas)})", expanded=True):
                             st.markdown("**Estas líneas no se pudieron procesar como mensajes de WhatsApp:**")
@@ -622,6 +809,7 @@ def main():
                             if len(no_parseadas) > 15:
                                 st.info(f"... y {len(no_parseadas)-15} líneas más")
                     
+                    # --- Detectar errores ortográficos ---
                     if opts['detectar'] and opts['corregir']:
                         errores = proc.corrector.detectar_errores(md)
                         if errores:
@@ -631,6 +819,7 @@ def main():
                                 if len(errores) > 20:
                                     st.info(f"... y {len(errores)-20} errores más")
                     
+                    # --- Mostrar resultado ---
                     st.markdown("### 📄 Resultado Markdown")
                     st.code(md, language="markdown")
                     
@@ -645,6 +834,7 @@ def main():
                     
                     st.success(f"✅ Procesados {len(mensajes)} mensajes correctamente.")
                     
+                    # Guardar historial
                     st.session_state.historial.append({
                         'fecha': datetime.now().strftime('%d-%m %H:%M'),
                         'msgs': len(mensajes),
@@ -655,6 +845,7 @@ def main():
     elif generar:
         st.warning("⚠️ Pega algunos mensajes o texto primero.")
     
+    # --- Footer ---
     st.markdown("---")
     st.markdown(f"""
     <div class="footer">
