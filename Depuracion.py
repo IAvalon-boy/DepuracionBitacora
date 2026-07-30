@@ -1,5 +1,5 @@
 """
-Transcripción Bitácora v4.3
+Transcripción Bitácora v4.4
 Sistema de transcripción WhatsApp → Markdown + Corrector ortográfico con spaCy y pyspellchecker
 Estilo consola Matrix
 Dependencias: streamlit, spacy, pyspellchecker (vía requirements.txt)
@@ -13,21 +13,12 @@ from typing import List, Optional, Dict, Tuple
 from collections import defaultdict
 import json
 import random
+import os
+import tempfile
 
-# --- Importar dependencias (ya instaladas por requirements.txt) ---
+# --- Importar dependencias ---
 import spacy
 from spellchecker import SpellChecker
-
-# --- Cargar modelo de español de spaCy ---
-# Si no está descargado, descargar automáticamente (esto es seguro en Streamlit Cloud)
-try:
-    nlp = spacy.load("es_core_news_sm")
-except OSError:
-    st.info("⏳ Descargando modelo de español de spaCy... (solo la primera vez)")
-    spacy.cli.download("es_core_news_sm")
-    nlp = spacy.load("es_core_news_sm")
-
-spell = SpellChecker(language='es')
 
 # --- Configuración de página ---
 st.set_page_config(
@@ -36,6 +27,28 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- Función para cargar spaCy con caché ---
+@st.cache_resource
+def load_spacy_model():
+    """Carga el modelo de español de spaCy con caché en disco."""
+    model_name = "es_core_news_sm"
+    try:
+        # Intentar cargar el modelo
+        nlp = spacy.load(model_name)
+        return nlp
+    except OSError:
+        # Si no existe, descargar sin bloquear (streamlit lo maneja en segundo plano)
+        with st.spinner("⏳ Descargando modelo de español de spaCy (solo la primera vez)..."):
+            spacy.cli.download(model_name)
+        nlp = spacy.load(model_name)
+        return nlp
+
+# --- Cargar modelo (con caché) ---
+nlp = load_spacy_model()
+
+# --- Inicializar pyspellchecker (ligero) ---
+spell = SpellChecker(language='es')
 
 # --- Estilo Matrix (consola) ---
 st.markdown("""
@@ -230,14 +243,10 @@ class CorrectorOrtografico:
             elif pos == 'PRON':      # pronombre personal
                 return 'tú'
         # Para interrogativos/exclamativos (que, cual, quien, como, cuando, donde, cuanto)
-        # Usamos una heurística: si el token es pronombre interrogativo o depende de un verbo en oración interrogativa
-        # spaCy no siempre marca correctamente, pero podemos usar dep_ e is_sent_start.
         if palabra in ['que', 'cual', 'quien', 'como', 'cuando', 'donde', 'cuanto']:
-            # Si es interrogativo/exclamativo, debería tener tilde
-            # Marcamos si token.dep_ es 'advmod' o 'ROOT' y está al inicio o tras signo de apertura
+            # Si el token es pronombre interrogativo o exclamativo (heurística)
             if (token.dep_ in ['advmod', 'ROOT', 'nsubj', 'obj'] and 
                 (token.i == 0 or (token.i > 0 and token.nbor(-1).text in ['¿', '¡']))):
-                # Mapeo a palabra con tilde
                 tilde_map = {
                     'que': 'qué', 'cual': 'cuál', 'quien': 'quién',
                     'como': 'cómo', 'cuando': 'cuándo', 'donde': 'dónde',
@@ -250,7 +259,6 @@ class CorrectorOrtografico:
             if self.spell.unknown([palabra]):
                 sugerencias = self.spell.candidates(palabra)
                 if sugerencias:
-                    # Tomar la primera sugerencia (la más probable)
                     return list(sugerencias)[0]
         return None
     
@@ -268,7 +276,6 @@ class CorrectorOrtografico:
         
         for token in doc:
             palabra = token.text
-            # Solo palabras alfabéticas (sin puntuación)
             if not re.match(r'^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+$', palabra):
                 continue
             if palabra.lower() in self.personal:
@@ -278,7 +285,6 @@ class CorrectorOrtografico:
             
             corregida = self._corregir_token(token)
             if corregida and corregida != palabra:
-                # Preservar mayúsculas
                 if palabra[0].isupper():
                     corregida = corregida.capitalize()
                 inicio = token.idx
@@ -286,7 +292,6 @@ class CorrectorOrtografico:
                 correcciones.append((inicio, fin, corregida))
                 cambios.append(f"{palabra} → {corregida}")
         
-        # Aplicar correcciones en orden inverso para no alterar índices
         if correcciones:
             chars = list(texto)
             for inicio, fin, corr in sorted(correcciones, reverse=True):
@@ -307,7 +312,6 @@ class CorrectorOrtografico:
                 continue
             if palabra.lower() in self.personal:
                 continue
-            # Palabras desconocidas para pyspellchecker
             if self.spell.unknown([palabra]):
                 sugerencias = self.spell.candidates(palabra)
                 if sugerencias:
